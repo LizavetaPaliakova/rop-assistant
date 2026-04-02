@@ -46,13 +46,15 @@ export async function POST(req: NextRequest) {
   const token = accessToken!
 
   try {
-    // Fetch all data in parallel
+    // Fetch all data — each wrapped in its own try/catch so one failure doesn't kill sync
+    const safe = <T>(p: Promise<T>, fallback: T) => p.catch((e) => { console.warn("AMO fetch warn:", e?.message); return fallback })
+
     const [amoPipelines, amoLeads, amoWonLeads, amoUsers, amoEvents] = await Promise.all([
-      fetchPipelines(domain, token),
-      fetchLeads(domain, token),
-      fetchWonLeads(domain, token, 90),
-      fetchUsers(domain, token),
-      fetchCallEvents(domain, token, 30),
+      safe(fetchPipelines(domain, token), []),
+      safe(fetchLeads(domain, token), []),
+      safe(fetchWonLeads(domain, token, 60), []),   // 60 days, max 4 pages
+      safe(fetchUsers(domain, token), []),
+      safe(fetchCallEvents(domain, token, 30), []),
     ])
 
     // Transform to our types

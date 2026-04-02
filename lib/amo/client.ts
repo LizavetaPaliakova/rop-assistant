@@ -83,13 +83,22 @@ async function amoGet<T>(
   const url = new URL(`${AMO_API(domain)}${path}`)
   if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v))
 
-  const res = await fetch(url.toString(), {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    next: { revalidate: 0 },
-  })
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 8000)
+
+  let res: Response
+  try {
+    res = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      next: { revalidate: 0 },
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timeout)
+  }
 
   if (res.status === 401) throw new Error("AMO_UNAUTHORIZED")
   if (!res.ok) throw new Error(`AmoCRM ${res.status}: ${await res.text()}`)
@@ -103,7 +112,8 @@ async function amoGetAll<T>(
   token: string,
   path: string,
   embedded: string,
-  extraParams?: Record<string, string>
+  extraParams?: Record<string, string>,
+  maxPages = 4          // safety cap — 4 pages × 250 = 1000 records max
 ): Promise<T[]> {
   const results: T[] = []
   let page = 1
@@ -119,7 +129,7 @@ async function amoGetAll<T>(
 
     if (!data._links?.next || items.length < limit) break
     page++
-    if (page > 10) break // safety cap at 2500 records
+    if (page > maxPages) break
   }
 
   return results
@@ -158,7 +168,7 @@ export async function fetchWonLeads(domain: string, token: string, daysBack = 90
 // Fetch all users and filter to active only (rights.is_active !== false)
 export async function fetchUsers(domain: string, token: string): Promise<AmoUser[]> {
   const data = await amoGet<{ _embedded?: { users: AmoUser[] } }>(
-    domain, token, "/users", { limit: "100", with: "role,group" }
+    domain, token, "/users", { limit: "100", with: "role,group,rights" }
   )
   const all = data._embedded?.users || []
   // Exclude fired/deactivated employees
@@ -168,7 +178,7 @@ export async function fetchUsers(domain: string, token: string): Promise<AmoUser
 // Fetch all users without filter (for the manager settings UI)
 export async function fetchAllUsers(domain: string, token: string): Promise<AmoUser[]> {
   const data = await amoGet<{ _embedded?: { users: AmoUser[] } }>(
-    domain, token, "/users", { limit: "100", with: "role,group" }
+    domain, token, "/users", { limit: "100", with: "role,group,rights" }
   )
   return data._embedded?.users || []
 }
