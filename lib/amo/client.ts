@@ -145,8 +145,10 @@ export async function fetchPipelines(domain: string, token: string): Promise<Amo
 }
 
 // Fetch open (active) leads
-export async function fetchLeads(domain: string, token: string): Promise<AmoLead[]> {
+export async function fetchLeads(domain: string, token: string, daysBack = 90): Promise<AmoLead[]> {
+  const since = Math.floor(Date.now() / 1000) - daysBack * 86400
   return amoGetAll<AmoLead>(domain, token, "/leads", "leads", {
+    "filter[updated_at][from]": String(since),
     order: "updated_at",
   })
 }

@@ -14,12 +14,24 @@ import {
   Shield, Bot, Zap, AlertTriangle, Eye, EyeOff, Unplug,
 } from "lucide-react"
 import { useAmo } from "@/context/amo-context"
+import { useStageFilter } from "@/lib/hooks/use-stage-filter"
+import { Switch } from "@/components/ui/switch"
+import { cn } from "@/lib/utils"
 
 type TgStatus = "idle" | "testing" | "connected" | "error"
 type AmoConnectMode = "token" | "oauth"
 
 function SettingsContent() {
-  const { connection, isSyncing, sync, disconnect, refreshConnection } = useAmo()
+  const { connection, data, isSyncing, sync, disconnect, refreshConnection } = useAmo()
+  const { isIncluded, toggleStage, excluded, resetFilter, seedLostStages } = useStageFilter()
+
+  useEffect(() => {
+    if (!connection.connected) return
+    const lostIds = data.pipelines.flatMap((p) =>
+      p.stages.filter((s) => s.type === 143).map((s) => s.id)
+    )
+    seedLostStages(lostIds)
+  }, [connection.connected, data.pipelines, seedLostStages])
   const searchParams = useSearchParams()
 
   // AmoCRM
@@ -446,6 +458,63 @@ function SettingsContent() {
             </div>
           </CardContent>
         </Card>
+
+        {/* ── Stage filter ── */}
+        {connection.connected && data.pipelines.length > 0 && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-500/15 text-lg">🔽</div>
+                <div>
+                  <CardTitle>Фильтр статусов воронок</CardTitle>
+                  <CardDescription>Выберите статусы, которые включаются в аналитику</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {data.pipelines.map((pipeline) => (
+                <div key={pipeline.id} className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{pipeline.name}</p>
+                  <div className="space-y-1">
+                    {pipeline.stages.map((stage) => {
+                      const included = isIncluded(stage.id)
+                      const isLost = stage.type === 143
+                      return (
+                        <div
+                          key={stage.id}
+                          className={cn(
+                            "flex items-center justify-between rounded-lg px-3 py-2 transition-colors",
+                            included ? "bg-slate-800/40" : "bg-slate-900/40 opacity-60"
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: stage.color || "#64748b" }}
+                            />
+                            <span className="text-sm text-slate-200">{stage.name}</span>
+                            {isLost && (
+                              <span className="text-xs text-red-400/70">(проигрыш)</span>
+                            )}
+                          </div>
+                          <Switch
+                            checked={included}
+                            onCheckedChange={() => toggleStage(stage.id)}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+              {excluded.size > 0 && (
+                <Button variant="outline" size="sm" onClick={resetFilter}>
+                  Сбросить фильтр
+                </Button>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {/* ── Danger zone ── */}
         <Card className="border-red-500/20">

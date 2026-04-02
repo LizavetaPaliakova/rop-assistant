@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
 
     const [amoPipelines, amoLeads, amoWonLeads, amoUsers, amoEvents] = await Promise.all([
       safe(fetchPipelines(domain, token), []),
-      safe(fetchLeads(domain, token), []),
+      safe(fetchLeads(domain, token, 90), []),
       safe(fetchWonLeads(domain, token, 60), []),   // 60 days, max 4 pages
       safe(fetchUsers(domain, token), []),
       safe(fetchCallEvents(domain, token, 30), []),

@@ -12,11 +12,13 @@ import { Separator } from "@/components/ui/separator"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { GitBranch, Settings2, TrendingUp, CheckCircle, AlertTriangle } from "lucide-react"
 import { useAmo } from "@/context/amo-context"
+import { useStageFilter } from "@/lib/hooks/use-stage-filter"
 import { formatPercent, formatNumber, formatCurrency } from "@/lib/utils"
 import type { Pipeline } from "@/lib/types"
 
 export default function PipelinesPage() {
   const { data, isDemo } = useAmo()
+  const { isIncluded } = useStageFilter()
   const [pipelines, setPipelines] = useState<Pipeline[]>(data.pipelines)
   const [selected, setSelected] = useState<Pipeline>(data.pipelines[0])
   const [editTarget, setEditTarget] = useState(false)
@@ -40,10 +42,10 @@ export default function PipelinesPage() {
     setEditTarget(false)
   }
 
-  // Stages filtered by the showClosed toggle (type 142 = won/closed)
-  const visibleStages = showClosed
-    ? selected.stages
-    : selected.stages.filter((s) => s.type !== 142)
+  // Stages filtered by the showClosed toggle (type 142 = won/closed) and the user's stage filter
+  const visibleStages = selected.stages
+    .filter((s) => showClosed || s.type !== 142)
+    .filter((s) => isIncluded(s.id))
 
   const hasClosedStages = selected.stages.some((s) => s.type === 142)
 
@@ -69,6 +71,9 @@ export default function PipelinesPage() {
         <div className="col-span-3 space-y-2">
           <p className="px-1 text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
             Воронки AmoCRM
+          </p>
+          <p className="px-1 text-xs text-slate-500 mb-2">
+            Фильтр статусов настраивается в Настройках
           </p>
           {pipelines.map((p) => {
             const conv = (p.stages.at(-1)!.deals_count / p.stages[0].deals_count) * 100
