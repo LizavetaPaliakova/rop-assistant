@@ -15,28 +15,37 @@ const COOKIE_OPTS = {
 }
 
 export async function POST(req: NextRequest) {
-  const domain = req.cookies.get("amo_domain")?.value
+  // Токен из cookies (OAuth или connect-token)
+  let domain = req.cookies.get("amo_domain")?.value
   let accessToken = req.cookies.get("amo_access_token")?.value
   const refreshToken = req.cookies.get("amo_refresh_token")?.value
   const expiresAt = req.cookies.get("amo_token_expires")?.value
+  const tokenType = req.cookies.get("amo_token_type")?.value
 
-  if (!domain || !refreshToken) {
+  // Fallback: долгосрочный токен из .env.local
+  if (!domain && process.env.AMO_DOMAIN && process.env.AMO_LONG_TERM_TOKEN) {
+    domain = process.env.AMO_DOMAIN
+    accessToken = process.env.AMO_LONG_TERM_TOKEN
+  }
+
+  if (!domain || !accessToken) {
     return NextResponse.json({ error: "Not connected to AmoCRM" }, { status: 401 })
   }
 
+  const isLongTerm = tokenType === "long_term" || !!process.env.AMO_LONG_TERM_TOKEN
+
   let newTokens: { access_token: string; refresh_token: string; expires_in: number } | null = null
 
-  // Refresh token if expired
-  const isExpired = !accessToken ||
-    !expiresAt ||
-    Date.now() > parseInt(expiresAt) - 300_000
-
-  if (isExpired) {
-    try {
-      newTokens = await refreshAccessToken(domain, refreshToken)
-      accessToken = newTokens.access_token
-    } catch {
-      return NextResponse.json({ error: "Token refresh failed, please reconnect" }, { status: 401 })
+  // Долгосрочный токен — рефреш не нужен
+  if (!isLongTerm) {
+    const isExpired = !expiresAt || Date.now() > parseInt(expiresAt) - 300_000
+    if (isExpired && refreshToken) {
+      try {
+        newTokens = await refreshAccessToken(domain, refreshToken!)
+        accessToken = newTokens.access_token
+      } catch {
+        return NextResponse.json({ error: "Token refresh failed, please reconnect" }, { status: 401 })
+      }
     }
   }
 

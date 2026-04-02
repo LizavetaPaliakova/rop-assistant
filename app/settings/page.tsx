@@ -16,13 +16,17 @@ import {
 import { useAmo } from "@/context/amo-context"
 
 type TgStatus = "idle" | "testing" | "connected" | "error"
+type AmoConnectMode = "token" | "oauth"
 
 function SettingsContent() {
   const { connection, isSyncing, sync, disconnect, refreshConnection } = useAmo()
   const searchParams = useSearchParams()
 
   // AmoCRM
-  const [amoDomain, setAmoDomain] = useState("")
+  const [connectMode, setConnectMode] = useState<AmoConnectMode>("token")
+  const [amoDomain, setAmoDomain] = useState("aiexpert")
+  const [amoToken, setAmoToken] = useState("")
+  const [showAmoToken, setShowAmoToken] = useState(false)
   const [amoConnecting, setAmoConnecting] = useState(false)
   const [syncInterval, setSyncInterval] = useState("30")
   const [amoError, setAmoError] = useState<string | null>(null)
@@ -59,32 +63,46 @@ function SettingsContent() {
     }
   }, [searchParams, refreshConnection])
 
-  const handleAmoConnect = () => {
+  const handleAmoConnectToken = async () => {
+    const domain = amoDomain.trim().replace(/\.amocrm\.ru$/, "")
+    const token = amoToken.trim()
+    if (!domain || !token) return
+    setAmoConnecting(true)
+    setAmoError(null)
+    try {
+      const res = await fetch("/api/amo/connect-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain, token }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setAmoError(data.error || "Ошибка подключения")
+      } else {
+        await refreshConnection()
+        await sync()
+      }
+    } catch (e) {
+      setAmoError((e as Error).message)
+    } finally {
+      setAmoConnecting(false)
+    }
+  }
+
+  const handleAmoConnectOAuth = () => {
     if (!amoDomain.trim()) return
     setAmoConnecting(true)
     setAmoError(null)
-
+    const domain = amoDomain.trim().replace(/\.amocrm\.ru$/, "")
     const clientId = process.env.NEXT_PUBLIC_AMO_CLIENT_ID
     if (!clientId) {
       setAmoError("NEXT_PUBLIC_AMO_CLIENT_ID не задан в .env.local")
       setAmoConnecting(false)
       return
     }
-
-    const domain = amoDomain.trim().replace(/\.amocrm\.ru$/, "")
     const redirectUri = encodeURIComponent(`${window.location.origin}/api/amo/callback`)
-    const state = Math.random().toString(36).slice(2)
-
-    const oauthUrl =
-      `https://${domain}.amocrm.ru/oauth?` +
-      `client_id=${clientId}&` +
-      `state=${state}&` +
-      `mode=popup&` +
-      `redirect_uri=${redirectUri}`
-
+    const oauthUrl = `https://${domain}.amocrm.ru/oauth?client_id=${clientId}&state=connect&mode=popup&redirect_uri=${redirectUri}`
     const popup = window.open(oauthUrl, "amo_oauth", "width=650,height=750,left=200,top=100")
-
-    // Poll for popup close
     const timer = setInterval(() => {
       if (!popup || popup.closed) {
         clearInterval(timer)
@@ -167,23 +185,28 @@ function SettingsContent() {
             {/* Not connected */}
             {!connection.connected && (
               <>
-                {/* Setup instructions */}
-                <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 space-y-2">
-                  <div className="flex gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-                    <p className="text-xs font-semibold text-amber-300">Перед подключением создайте интеграцию в AmoCRM</p>
-                  </div>
-                  <ol className="list-decimal list-inside text-xs text-amber-400 space-y-1 pl-6">
-                    <li>Откройте AmoCRM → Настройки → Интеграции → Создать интеграцию</li>
-                    <li>Тип: <b>Внешняя интеграция (OAuth 2.0)</b></li>
-                    <li>Redirect URI: <code className="bg-slate-800 px-1 rounded text-slate-300">{typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/amo/callback</code></li>
-                    <li>Скопируйте <b>Client ID</b> и <b>Client Secret</b> в <code className="bg-slate-800 px-1 rounded text-slate-300">.env.local</code></li>
-                  </ol>
-                  <div className="mt-2 rounded bg-slate-800/80 p-2 font-mono text-xs text-slate-300 select-all">
-                    NEXT_PUBLIC_AMO_CLIENT_ID=ваш_client_id<br />
-                    AMO_CLIENT_SECRET=ваш_secret<br />
-                    AMO_REDIRECT_URL={typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/amo/callback
-                  </div>
+                {/* Mode switcher */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setConnectMode("token")}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                      connectMode === "token"
+                        ? "border-blue-500/50 bg-blue-500/10 text-blue-300"
+                        : "border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-600"
+                    }`}
+                  >
+                    🔑 Долгосрочный токен
+                  </button>
+                  <button
+                    onClick={() => setConnectMode("oauth")}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                      connectMode === "oauth"
+                        ? "border-blue-500/50 bg-blue-500/10 text-blue-300"
+                        : "border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-600"
+                    }`}
+                  >
+                    <ExternalLink className="inline h-3.5 w-3.5 mr-1" />OAuth 2.0
+                  </button>
                 </div>
 
                 {amoError && (
@@ -192,27 +215,78 @@ function SettingsContent() {
                   </div>
                 )}
 
-                <div className="space-y-1.5">
-                  <Label>Поддомен AmoCRM</Label>
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Input
-                        placeholder="mycompany"
-                        value={amoDomain}
-                        onChange={(e) => setAmoDomain(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleAmoConnect()}
-                      />
-                      <span className="absolute right-3 top-2 text-sm text-slate-500">.amocrm.ru</span>
+                {/* Token mode */}
+                {connectMode === "token" && (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-3 text-xs text-slate-400">
+                      AmoCRM → Настройки → Интеграции → ваша интеграция → вкладка <b className="text-slate-300">«Ключи и токены»</b> → скопируйте <b className="text-slate-300">Долгосрочный токен доступа</b>
                     </div>
-                    <Button onClick={handleAmoConnect} disabled={amoConnecting || !amoDomain.trim()}>
-                      <ExternalLink className="h-4 w-4" />
-                      {amoConnecting ? "Ожидание..." : "Подключить"}
+                    <div className="space-y-1.5">
+                      <Label>Поддомен AmoCRM</Label>
+                      <div className="relative">
+                        <Input
+                          placeholder="mycompany"
+                          value={amoDomain}
+                          onChange={(e) => setAmoDomain(e.target.value)}
+                        />
+                        <span className="absolute right-3 top-2 text-sm text-slate-500">.amocrm.ru</span>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Долгосрочный токен</Label>
+                      <div className="relative">
+                        <Input
+                          type={showAmoToken ? "text" : "password"}
+                          placeholder="eyJ0eXAiOiJKV1Qi..."
+                          value={amoToken}
+                          onChange={(e) => setAmoToken(e.target.value)}
+                        />
+                        <button
+                          className="absolute right-3 top-2 text-slate-500 hover:text-slate-300"
+                          onClick={() => setShowAmoToken(!showAmoToken)}
+                        >
+                          {showAmoToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={handleAmoConnectToken}
+                      disabled={amoConnecting || !amoDomain.trim() || !amoToken.trim()}
+                      className="w-full"
+                    >
+                      {amoConnecting
+                        ? <><RefreshCw className="h-4 w-4 animate-spin" /> Подключение и синхронизация...</>
+                        : <><CheckCircle className="h-4 w-4" /> Подключить</>}
                     </Button>
                   </div>
-                  <p className="text-xs text-slate-500">
-                    Откроется окно авторизации AmoCRM — разрешите доступ для приложения
-                  </p>
-                </div>
+                )}
+
+                {/* OAuth mode */}
+                {connectMode === "oauth" && (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-400">
+                      Нужны <b className="text-amber-300">Client ID</b> и <b className="text-amber-300">Client Secret</b> из настроек интеграции AmoCRM, прописанные в <code className="bg-slate-800 px-1 rounded">.env.local</code>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Поддомен AmoCRM</Label>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Input
+                            placeholder="mycompany"
+                            value={amoDomain}
+                            onChange={(e) => setAmoDomain(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleAmoConnectOAuth()}
+                          />
+                          <span className="absolute right-3 top-2 text-sm text-slate-500">.amocrm.ru</span>
+                        </div>
+                        <Button onClick={handleAmoConnectOAuth} disabled={amoConnecting || !amoDomain.trim()}>
+                          <ExternalLink className="h-4 w-4" />
+                          {amoConnecting ? "Ожидание..." : "Открыть OAuth"}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
 
