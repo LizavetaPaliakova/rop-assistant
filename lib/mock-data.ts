@@ -1,0 +1,178 @@
+import type { Manager, Pipeline, Deal, DashboardStats, AiAlert } from "./types"
+
+export const mockManagers: Manager[] = [
+  {
+    id: "1",
+    amo_id: 101,
+    name: "Александр Иванов",
+    email: "ivanov@company.ru",
+    is_tracked: true,
+    deals_count: 34,
+    revenue: 2_840_000,
+    plan: 3_000_000,
+    plan_percent: 94.7,
+    calls_count: 87,
+    conversion: 22.4,
+    avg_deal_days: 18,
+    last_activity: "2 часа назад",
+    stalled_deals: 2,
+  },
+  {
+    id: "2",
+    amo_id: 102,
+    name: "Виктор Петров",
+    email: "petrov@company.ru",
+    is_tracked: true,
+    deals_count: 19,
+    revenue: 1_620_000,
+    plan: 3_000_000,
+    plan_percent: 54.0,
+    calls_count: 34,
+    conversion: 11.2,
+    avg_deal_days: 31,
+    last_activity: "3 дня назад",
+    stalled_deals: 5,
+  },
+  {
+    id: "3",
+    amo_id: 103,
+    name: "Елена Сидорова",
+    email: "sidorova@company.ru",
+    is_tracked: true,
+    deals_count: 41,
+    revenue: 3_060_000,
+    plan: 3_000_000,
+    plan_percent: 102.0,
+    calls_count: 112,
+    conversion: 28.6,
+    avg_deal_days: 14,
+    last_activity: "30 минут назад",
+    stalled_deals: 0,
+  },
+  {
+    id: "4",
+    amo_id: 104,
+    name: "Дмитрий Козлов",
+    email: "kozlov@company.ru",
+    is_tracked: true,
+    deals_count: 27,
+    revenue: 2_150_000,
+    plan: 3_000_000,
+    plan_percent: 71.7,
+    calls_count: 65,
+    conversion: 17.8,
+    avg_deal_days: 22,
+    last_activity: "Вчера",
+    stalled_deals: 3,
+  },
+  {
+    id: "5",
+    amo_id: 105,
+    name: "Ольга Морозова",
+    email: "morozova@company.ru",
+    is_tracked: false,
+    deals_count: 22,
+    revenue: 1_890_000,
+    plan: 3_000_000,
+    plan_percent: 63.0,
+    calls_count: 51,
+    conversion: 15.3,
+    avg_deal_days: 26,
+    last_activity: "Сегодня",
+    stalled_deals: 4,
+  },
+]
+
+export const mockPipelines: Pipeline[] = [
+  {
+    id: "1",
+    amo_id: 201,
+    name: "Основные продажи",
+    is_monitored: true,
+    target_conversion: 15,
+    stages: [
+      { id: "s1", amo_id: 301, name: "Новый лид", deals_count: 340, revenue: 0 },
+      { id: "s2", amo_id: 302, name: "Квалификация", deals_count: 89, revenue: 0 },
+      { id: "s3", amo_id: 303, name: "КП отправлено", deals_count: 45, revenue: 4_500_000 },
+      { id: "s4", amo_id: 304, name: "Переговоры", deals_count: 23, revenue: 3_200_000 },
+      { id: "s5", amo_id: 305, name: "Закрыто", deals_count: 18, revenue: 2_700_000 },
+    ],
+  },
+  {
+    id: "2",
+    amo_id: 202,
+    name: "Повторные продажи",
+    is_monitored: true,
+    target_conversion: 35,
+    stages: [
+      { id: "s6", amo_id: 306, name: "База клиентов", deals_count: 120, revenue: 0 },
+      { id: "s7", amo_id: 307, name: "Предложение", deals_count: 67, revenue: 5_100_000 },
+      { id: "s8", amo_id: 308, name: "Согласование", deals_count: 41, revenue: 3_800_000 },
+      { id: "s9", amo_id: 309, name: "Оплата", deals_count: 28, revenue: 2_900_000 },
+    ],
+  },
+  {
+    id: "3",
+    amo_id: 203,
+    name: "Входящие лиды",
+    is_monitored: false,
+    target_conversion: 20,
+    stages: [
+      { id: "s10", amo_id: 310, name: "Входящий", deals_count: 89, revenue: 0 },
+      { id: "s11", amo_id: 311, name: "Обработка", deals_count: 45, revenue: 0 },
+      { id: "s12", amo_id: 312, name: "Закрыт", deals_count: 22, revenue: 1_800_000 },
+    ],
+  },
+]
+
+export const mockDashboardStats: DashboardStats = {
+  total_deals: 127,
+  total_revenue: 9_560_000,
+  conversion: 18.3,
+  avg_deal_days: 22,
+  deals_delta: 12,
+  revenue_delta: 8.4,
+  conversion_delta: -1.2,
+}
+
+export const mockAiAlerts: AiAlert[] = [
+  {
+    type: "danger",
+    message: "Конверсия КП→Переговоры упала на 12% относительно прошлого месяца",
+    count: 12,
+  },
+  {
+    type: "warning",
+    message: "сделок застряли без активности более 14 дней",
+    count: 34,
+  },
+  {
+    type: "warning",
+    message: "Петров В.: 0 звонков за последние 3 дня, 5 сделок в риске",
+    manager: "Виктор Петров",
+  },
+  {
+    type: "info",
+    message: "Сидорова Е. перевыполняет план на 2% — рекомендуем изучить её подход",
+    manager: "Елена Сидорова",
+  },
+]
+
+export const mockWeeklyData = [
+  { week: "4 мар", deals: 18, revenue: 1_420_000, calls: 89 },
+  { week: "11 мар", deals: 22, revenue: 1_780_000, calls: 104 },
+  { week: "18 мар", deals: 19, revenue: 1_550_000, calls: 97 },
+  { week: "25 мар", deals: 31, revenue: 2_340_000, calls: 132 },
+  { week: "1 апр", deals: 27, revenue: 2_120_000, calls: 118 },
+  { week: "8 апр", deals: 10, revenue: 350_000, calls: 45 },
+]
+
+export const mockDealsActivity = [
+  { day: "Пн", won: 4, lost: 2, created: 12 },
+  { day: "Вт", won: 6, lost: 1, created: 18 },
+  { day: "Ср", won: 3, lost: 3, created: 9 },
+  { day: "Чт", won: 8, lost: 2, created: 21 },
+  { day: "Пт", won: 5, lost: 4, created: 15 },
+  { day: "Сб", won: 1, lost: 0, created: 3 },
+  { day: "Вс", won: 0, lost: 0, created: 1 },
+]
