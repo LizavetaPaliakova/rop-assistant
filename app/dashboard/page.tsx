@@ -76,6 +76,24 @@ export default function DashboardPage() {
       title="Дашборд"
       subtitle={isDemo ? "Сводная аналитика · Демо-режим (подключите AmoCRM в Настройках)" : "Сводная аналитика · данные из AmoCRM"}
     >
+      {/* Config warning */}
+      {!isDemo && appSettings.paymentStatusIds.length === 0 && (
+        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-center gap-3">
+          <span className="text-amber-400 text-lg">⚠️</span>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-amber-300">Настройте статусы оплаты</p>
+            <p className="text-xs text-amber-400/70 mt-0.5">Выручка не считается, пока не выбраны статусы, которые считаются оплатой</p>
+          </div>
+          <a href="/settings" className="text-xs text-amber-300 underline underline-offset-2 hover:text-amber-200 shrink-0">Перейти в настройки →</a>
+        </div>
+      )}
+      {!isDemo && appSettings.activeStatusIds.length === 0 && appSettings.paymentStatusIds.length > 0 && (
+        <div className="mb-4 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3 flex items-center gap-3">
+          <span className="text-blue-400 text-lg">ℹ️</span>
+          <p className="text-xs text-blue-300">Активные сделки: показаны все незакрытые. Уточните в <a href="/settings" className="underline">настройках</a> нужные статусы.</p>
+        </div>
+      )}
+
       {/* Top KPI row */}
       <div className="mb-6 grid grid-cols-4 gap-4">
         {/* 1. Deals in work */}

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react"
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react"
 import type { Pipeline, Manager, DashboardStats, AiAlert } from "@/lib/types"
 import {
   mockManagers, mockPipelines, mockDashboardStats,
@@ -68,8 +68,9 @@ export function AmoProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<AmoData>(mockData)
   const [isLoading, setIsLoading] = useState(true)
   const [isSyncing, setIsSyncing] = useState(false)
+  const isSyncingRef = useRef(false)
 
-  // Check connection status on mount
+  // Check connection status on mount (used in settings page after OAuth)
   const refreshConnection = useCallback(async () => {
     try {
       const res = await fetch("/api/amo/status")
@@ -86,6 +87,8 @@ export function AmoProvider({ children }: { children: React.ReactNode }) {
 
   // Full sync: fetch all data from AmoCRM and transform
   const sync = useCallback(async () => {
+    if (isSyncingRef.current) return
+    isSyncingRef.current = true
     setIsSyncing(true)
     try {
       const res = await fetch("/api/amo/sync", { method: "POST" })
@@ -114,6 +117,7 @@ export function AmoProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       console.error("Sync error:", err)
     } finally {
+      isSyncingRef.current = false
       setIsSyncing(false)
     }
   }, [])
@@ -124,22 +128,29 @@ export function AmoProvider({ children }: { children: React.ReactNode }) {
     setData(mockData)
   }, [])
 
-  // On mount: check connection, then sync if connected
+  // On mount: check connection status, then sync if connected — runs once
   useEffect(() => {
+    let cancelled = false
     const init = async () => {
       setIsLoading(true)
-      await refreshConnection()
-      setIsLoading(false)
+      try {
+        const res = await fetch("/api/amo/status")
+        if (cancelled) return
+        if (!res.ok) { setConnection(defaultConnection); return }
+        const status: AmoConnection = await res.json()
+        setConnection(status)
+        if (status.connected && !cancelled) {
+          await sync()
+        }
+      } catch {
+        if (!cancelled) setConnection(defaultConnection)
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
     }
     init()
-  }, [refreshConnection])
-
-  // Auto-sync when connection is detected
-  useEffect(() => {
-    if (connection.connected) {
-      sync()
-    }
-  }, [connection.connected, sync])
+    return () => { cancelled = true }
+  }, []) // empty deps — runs once on mount
 
   const isDemo = !connection.connected
 

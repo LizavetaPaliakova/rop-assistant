@@ -34,13 +34,13 @@ export function transformPipelines(
     ).length
 
     const salesThisMonth = pipelinePaymentLeads.filter((l) => {
-      const t = l.closed_at || l.updated_at
+      const t = l.closed_at || 0
       return t >= monthStart
     }).length
 
     const revenueThisMonth = pipelinePaymentLeads
       .filter((l) => {
-        const t = l.closed_at || l.updated_at
+        const t = l.closed_at || 0
         return t >= monthStart
       })
       .reduce((s, l) => s + (l.price || 0), 0)
@@ -101,7 +101,7 @@ export function transformManagers(
 
     // sales_this_month: payment leads closed this calendar month
     const salesThisMonth = userPaymentLeads.filter((l) => {
-      const t = l.closed_at || l.updated_at
+      const t = l.closed_at || 0
       return t >= monthStart
     })
 
@@ -181,12 +181,12 @@ export function calcDashboardStats(
     : openLeads.filter((l) => l.status_id !== AMO_WON_STATUS && l.status_id !== AMO_LOST_STATUS)
 
   const wonThisMonth = paymentLeads.filter((l) => {
-    const t = l.closed_at || l.updated_at
+    const t = l.closed_at || 0
     return t >= monthStart
   })
 
   const wonLastMonth = paymentLeads.filter((l) => {
-    const t = l.closed_at || l.updated_at
+    const t = l.closed_at || 0
     return t >= prevMonthStart && t < monthStart
   })
 
@@ -289,7 +289,7 @@ export function buildWeeklyData(leads: AmoLead[], paymentLeads: AmoLead[], event
     const label = date.toLocaleDateString("ru-RU", { day: "numeric", month: "short" })
     const newDeals = leads.filter(l => l.created_at >= dayStart && l.created_at < dayEnd).length
     const revenue = paymentLeads.filter(l => {
-      const t = l.closed_at || l.updated_at
+      const t = l.closed_at || 0
       return t >= dayStart && t < dayEnd
     }).reduce((s, l) => s + (l.price || 0), 0)
     return {

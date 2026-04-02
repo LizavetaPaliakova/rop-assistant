@@ -162,14 +162,15 @@ export async function fetchLeads(
   return amoGetAll<AmoLead>(domain, token, "/leads", "leads", params, 4)
 }
 
-// Fetch won (closed+won) leads for revenue
+/** Returns [] if no payment statuses configured */
 export async function fetchWonLeads(
   domain: string,
   token: string,
   paymentStatusIds: number[],
   pipelineIds: number[] = []
 ): Promise<AmoLead[]> {
-  const statusIds = paymentStatusIds.length > 0 ? paymentStatusIds : [142]
+  if (paymentStatusIds.length === 0) return []
+  const statusIds = paymentStatusIds
   try {
     const results: AmoLead[] = []
     for (let si = 0; si < statusIds.length; si++) {
