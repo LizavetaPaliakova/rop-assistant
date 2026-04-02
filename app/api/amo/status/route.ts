@@ -16,15 +16,6 @@ export async function GET(req: NextRequest) {
   const expiresAt = req.cookies.get("amo_token_expires")?.value
   const tokenType = req.cookies.get("amo_token_type")?.value // "long_term" | undefined
 
-  // Если cookie нет — пробуем env (долгосрочный токен из .env.local)
-  const envToken = process.env.AMO_LONG_TERM_TOKEN
-  const envDomain = process.env.AMO_DOMAIN
-
-  if (!domain && envToken && envDomain) {
-    domain = envDomain
-    accessToken = envToken
-  }
-
   if (!domain || !accessToken) {
     return NextResponse.json({
       connected: false,
@@ -36,7 +27,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Долгосрочный токен — проверяем только expiry (exp=1788134400 → 2026-06-30)
-  const isLongTerm = tokenType === "long_term" || !!envToken
+  const isLongTerm = tokenType === "long_term"
   if (isLongTerm) {
     const expMs = expiresAt ? parseInt(expiresAt) : 1788134400000
     if (Date.now() > expMs) {

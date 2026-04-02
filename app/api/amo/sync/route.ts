@@ -22,17 +22,11 @@ export async function POST(req: NextRequest) {
   const expiresAt = req.cookies.get("amo_token_expires")?.value
   const tokenType = req.cookies.get("amo_token_type")?.value
 
-  // Fallback: долгосрочный токен из .env.local
-  if (!domain && process.env.AMO_DOMAIN && process.env.AMO_LONG_TERM_TOKEN) {
-    domain = process.env.AMO_DOMAIN
-    accessToken = process.env.AMO_LONG_TERM_TOKEN
-  }
-
   if (!domain || !accessToken) {
     return NextResponse.json({ error: "Not connected to AmoCRM" }, { status: 401 })
   }
 
-  const isLongTerm = tokenType === "long_term" || !!process.env.AMO_LONG_TERM_TOKEN
+  const isLongTerm = tokenType === "long_term"
 
   let newTokens: { access_token: string; refresh_token: string; expires_in: number } | null = null
 

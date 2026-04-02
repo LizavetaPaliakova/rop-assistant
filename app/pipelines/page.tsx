@@ -21,6 +21,7 @@ export default function PipelinesPage() {
   const [selected, setSelected] = useState<Pipeline>(data.pipelines[0])
   const [editTarget, setEditTarget] = useState(false)
   const [targetValue, setTargetValue] = useState(selected.target_conversion.toString())
+  const [showClosed, setShowClosed] = useState(false)
 
   const toggleMonitor = (id: string) => {
     setPipelines((prev) =>
@@ -39,14 +40,25 @@ export default function PipelinesPage() {
     setEditTarget(false)
   }
 
-  const realConversion =
-    (selected.stages.at(-1)!.deals_count / selected.stages[0].deals_count) * 100
+  // Stages filtered by the showClosed toggle (type 142 = won/closed)
+  const visibleStages = showClosed
+    ? selected.stages
+    : selected.stages.filter((s) => s.type !== 142)
 
-  const chartData = selected.stages.map((s, i) => ({
+  const hasClosedStages = selected.stages.some((s) => s.type === 142)
+
+  const realConversion =
+    visibleStages.length > 1
+      ? (visibleStages.at(-1)!.deals_count / visibleStages[0].deals_count) * 100
+      : visibleStages.length === 1
+      ? 100
+      : 0
+
+  const chartData = visibleStages.map((s, i) => ({
     name: s.name.length > 10 ? s.name.slice(0, 10) + "…" : s.name,
     сделки: s.deals_count,
     конверсия: i > 0
-      ? parseFloat(((s.deals_count / selected.stages[i - 1].deals_count) * 100).toFixed(1))
+      ? parseFloat(((s.deals_count / visibleStages[i - 1].deals_count) * 100).toFixed(1))
       : 100,
   }))
 
@@ -111,10 +123,22 @@ export default function PipelinesPage() {
                 <div>
                   <CardTitle>{selected.name}</CardTitle>
                   <CardDescription className="mt-1">
-                    {selected.stages[0].deals_count} входящих лидов · {selected.stages.at(-1)!.deals_count} закрытых сделок
+                    {visibleStages[0]?.deals_count ?? 0} входящих лидов · {visibleStages.at(-1)?.deals_count ?? 0} закрытых сделок
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
+                  {hasClosedStages && (
+                    <button
+                      onClick={() => setShowClosed((v) => !v)}
+                      className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                        showClosed
+                          ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-400"
+                          : "border-slate-600 bg-slate-800 text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      {showClosed ? "Скрыть закрытые" : "Показать закрытые"}
+                    </button>
+                  )}
                   {realConversion >= selected.target_conversion ? (
                     <Badge variant="success">
                       <CheckCircle className="h-3 w-3 mr-1" /> Цель достигнута
@@ -156,12 +180,12 @@ export default function PipelinesPage() {
                 </div>
                 <div className="rounded-lg bg-slate-900 p-3">
                   <p className="text-xs text-slate-500">Всего лидов</p>
-                  <p className="text-xl font-bold text-slate-100 mt-1">{formatNumber(selected.stages[0].deals_count)}</p>
+                  <p className="text-xl font-bold text-slate-100 mt-1">{formatNumber(visibleStages[0]?.deals_count ?? 0)}</p>
                 </div>
                 <div className="rounded-lg bg-slate-900 p-3">
                   <p className="text-xs text-slate-500">Выручка (КП+)</p>
                   <p className="text-xl font-bold text-slate-100 mt-1">
-                    {formatCurrency(selected.stages.reduce((s, st) => s + st.revenue, 0))}
+                    {formatCurrency(visibleStages.reduce((s, st) => s + st.revenue, 0))}
                   </p>
                 </div>
               </div>
@@ -207,17 +231,23 @@ export default function PipelinesPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {selected.stages.map((stage, i) => {
+                    {visibleStages.map((stage, i) => {
                       const stageConv = i > 0
-                        ? (stage.deals_count / selected.stages[i - 1].deals_count) * 100
+                        ? (stage.deals_count / visibleStages[i - 1].deals_count) * 100
                         : 100
                       const dropped = i > 0
-                        ? selected.stages[i - 1].deals_count - stage.deals_count
+                        ? visibleStages[i - 1].deals_count - stage.deals_count
                         : 0
+                      const isWonStage = stage.type === 142
 
                       return (
                         <tr key={stage.id} className="border-b border-slate-700/30 hover:bg-slate-800/30 transition-colors">
-                          <td className="px-4 py-3 font-medium text-slate-200">{stage.name}</td>
+                          <td className="px-4 py-3 font-medium text-slate-200">
+                            {stage.name}
+                            {isWonStage && (
+                              <span className="ml-2 text-xs text-emerald-500">(закрыто)</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 text-right text-slate-300">{stage.deals_count}</td>
                           <td className="px-4 py-3 text-right">
                             {i > 0 ? (
@@ -232,9 +262,11 @@ export default function PipelinesPage() {
                             {stage.revenue > 0 ? formatCurrency(stage.revenue) : "—"}
                           </td>
                           <td className="px-4 py-3 text-center">
-                            {dropped > 5 ? (
+                            {isWonStage ? (
+                              <Badge variant="success">Выиграно</Badge>
+                            ) : dropped > 5 ? (
                               <Badge variant="danger">-{dropped} отсеялось</Badge>
-                            ) : i === selected.stages.length - 1 ? (
+                            ) : i === visibleStages.length - 1 ? (
                               <Badge variant="success">Финал</Badge>
                             ) : (
                               <Badge variant="secondary">Норма</Badge>

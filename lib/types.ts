@@ -31,6 +31,8 @@ export interface PipelineStage {
   deals_count: number
   revenue: number
   color?: string
+  /** 0 = normal, 142 = won, 143 = lost */
+  type?: number
 }
 
 export interface Deal {
@@ -90,4 +92,136 @@ export interface Settings {
   tg_chat_id?: string
   tg_connected: boolean
   sync_interval: number
+}
+
+// =============================================
+// Онбординг менеджеров
+// =============================================
+
+export interface OnboardingManager {
+  id: string
+  first_name: string
+  last_name: string
+  phone: string
+  session_token: string
+  attestation_passed: boolean
+  attestation_passed_at?: string
+  certificate_issued: boolean
+  certificate_issued_at?: string
+  created_at: string
+}
+
+export interface OnboardingDay {
+  id: string
+  day_number: number
+  title: string
+  description?: string
+  is_active: boolean
+  materials?: OnboardingMaterial[]
+  test?: OnboardingTest
+}
+
+export type MaterialType = 'video' | 'text' | 'presentation' | 'link'
+
+export interface OnboardingMaterial {
+  id: string
+  day_id: string
+  type: MaterialType
+  title: string
+  content?: string
+  url?: string
+  sort: number
+}
+
+export interface OnboardingTest {
+  id: string
+  day_id: string
+  title: string
+  passing_score: number
+  questions?: OnboardingQuestion[]
+}
+
+export interface OnboardingQuestion {
+  id: string
+  test_id: string
+  question_text: string
+  sort: number
+  options?: OnboardingOption[]
+}
+
+export interface OnboardingOption {
+  id: string
+  question_id: string
+  option_text: string
+  is_correct: boolean
+  sort: number
+}
+
+export type ProgressStatus = 'locked' | 'in_progress' | 'completed'
+
+export interface OnboardingProgress {
+  id: string
+  manager_id: string
+  day_id: string
+  status: ProgressStatus
+  materials_viewed: boolean
+  test_passed: boolean
+  homework_submitted: boolean
+  completed_at?: string
+}
+
+export interface OnboardingAttempt {
+  id: string
+  manager_id: string
+  test_id: string
+  score: number
+  passed: boolean
+  answers: AttemptAnswer[]
+  created_at: string
+}
+
+export interface AttemptAnswer {
+  question_id: string
+  selected_option_id: string
+  is_correct: boolean
+}
+
+export interface OnboardingHomework {
+  id: string
+  manager_id: string
+  day_id: string
+  text: string
+  status: 'submitted' | 'reviewed'
+  rop_comment?: string
+  submitted_at: string
+  reviewed_at?: string
+}
+
+export interface ProductKnowledge {
+  id: string
+  category?: string
+  question?: string
+  answer?: string
+  source_row?: number
+  synced_at: string
+}
+
+export interface GoogleSyncConfig {
+  id: string
+  spreadsheet_id: string
+  sheet_name: string
+  category_column: string
+  question_column: string
+  answer_column: string
+  last_synced_at?: string
+  is_active: boolean
+}
+
+// Данные для отображения прогресса менеджера в админке
+export interface ManagerProgressView {
+  manager: OnboardingManager
+  progress: (OnboardingProgress & { day: OnboardingDay })[]
+  overall_percent: number
+  days_completed: number
+  last_activity?: string
 }

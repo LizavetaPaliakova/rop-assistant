@@ -189,6 +189,15 @@ export async function fetchCallEvents(
   }
 }
 
+// Fetch leads with arbitrary filter params (for deals page)
+export async function fetchFilteredLeads(
+  domain: string,
+  token: string,
+  params: Record<string, string>
+): Promise<AmoLead[]> {
+  return amoGetAll<AmoLead>(domain, token, "/leads", "leads", params)
+}
+
 // ─── Token refresh ─────────────────────────────────────────────────────────────
 
 export async function refreshAccessToken(

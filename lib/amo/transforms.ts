@@ -17,7 +17,7 @@ export function transformPipelines(
     const pipelineLeads = leads.filter((l) => l.pipeline_id === p.id)
 
     const stages = (p._embedded?.statuses || [])
-      .filter((s) => s.type !== AMO_LOST_STATUS) // exclude lost
+      .filter((s) => s.type !== AMO_LOST_STATUS) // exclude lost; keep won (142) for toggle
       .sort((a, b) => a.sort - b.sort)
       .map((s) => {
         const stageLeads = pipelineLeads.filter((l) => l.status_id === s.id)
@@ -28,6 +28,7 @@ export function transformPipelines(
           deals_count: stageLeads.length,
           revenue: stageLeads.reduce((sum, l) => sum + (l.price || 0), 0),
           color: s.color,
+          type: s.type,
         }
       })
 

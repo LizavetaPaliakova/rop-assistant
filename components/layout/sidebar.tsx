@@ -10,6 +10,7 @@ import {
   Settings,
   TrendingUp,
   RefreshCw,
+  Table2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAmo } from "@/context/amo-context"
@@ -18,6 +19,7 @@ const navItems = [
   { href: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
   { href: "/pipelines", label: "Воронки", icon: GitBranch },
   { href: "/managers", label: "Менеджеры", icon: Users },
+  { href: "/deals", label: "Сделки", icon: Table2 },
   { href: "/reports", label: "Отчёты", icon: FileText },
   { href: "/settings", label: "Настройки", icon: Settings },
 ]
