@@ -48,12 +48,19 @@ export interface AmoLead {
   }
 }
 
+export interface AmoUserRights {
+  is_active?: boolean
+  is_admin?: boolean
+  is_free?: boolean
+}
+
 export interface AmoUser {
   id: number
   name: string
   email: string
   role_id: number
   group_id: number
+  rights?: AmoUserRights
 }
 
 export interface AmoEvent {
@@ -110,7 +117,6 @@ async function amoGetAll<T>(
     const items = data._embedded?.[embedded] || []
     results.push(...items)
 
-    // No next page or got less than limit
     if (!data._links?.next || items.length < limit) break
     page++
     if (page > 10) break // safety cap at 2500 records
@@ -128,16 +134,41 @@ export async function fetchPipelines(domain: string, token: string): Promise<Amo
   return data._embedded?.pipelines || []
 }
 
+// Fetch open (active) leads
 export async function fetchLeads(domain: string, token: string): Promise<AmoLead[]> {
   return amoGetAll<AmoLead>(domain, token, "/leads", "leads", {
-    with: "contacts",
     order: "updated_at",
   })
 }
 
+// Fetch won (closed+won) leads for revenue — status_id 142 = Успешно реализовано
+export async function fetchWonLeads(domain: string, token: string, daysBack = 90): Promise<AmoLead[]> {
+  const since = Math.floor(Date.now() / 1000) - daysBack * 86400
+  try {
+    return amoGetAll<AmoLead>(domain, token, "/leads", "leads", {
+      "filter[statuses][0][status_id]": "142",
+      "filter[updated_at][from]": String(since),
+      order: "updated_at",
+    })
+  } catch {
+    return []
+  }
+}
+
+// Fetch all users and filter to active only (rights.is_active !== false)
 export async function fetchUsers(domain: string, token: string): Promise<AmoUser[]> {
   const data = await amoGet<{ _embedded?: { users: AmoUser[] } }>(
-    domain, token, "/users", { limit: "100" }
+    domain, token, "/users", { limit: "100", with: "role,group" }
+  )
+  const all = data._embedded?.users || []
+  // Exclude fired/deactivated employees
+  return all.filter((u) => u.rights?.is_active !== false)
+}
+
+// Fetch all users without filter (for the manager settings UI)
+export async function fetchAllUsers(domain: string, token: string): Promise<AmoUser[]> {
+  const data = await amoGet<{ _embedded?: { users: AmoUser[] } }>(
+    domain, token, "/users", { limit: "100", with: "role,group" }
   )
   return data._embedded?.users || []
 }
@@ -150,8 +181,8 @@ export async function fetchCallEvents(
   const since = Math.floor(Date.now() / 1000) - daysBack * 86400
   try {
     return amoGetAll<AmoEvent>(domain, token, "/events", "events", {
-      filter: "type[]=outgoing_call,type[]=incoming_call",
-      created_at: `from=${since}`,
+      "filter[type][]": "outgoing_call",
+      "filter[created_at][from]": String(since),
     })
   } catch {
     return []

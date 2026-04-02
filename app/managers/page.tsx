@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { AppLayout } from "@/components/layout/app-layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -11,11 +11,25 @@ import { Separator } from "@/components/ui/separator"
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts"
 import {
   Phone, TrendingUp, TrendingDown, AlertTriangle, Star,
-  Clock, Target, DollarSign, ChevronRight, User
+  Clock, Target, DollarSign, ChevronRight, User, Eye, EyeOff, Settings2
 } from "lucide-react"
 import { useAmo } from "@/context/amo-context"
 import { formatCurrency, formatPercent, cn } from "@/lib/utils"
 import type { Manager } from "@/lib/types"
+
+const HIDDEN_KEY = "rop_hidden_managers"
+
+function loadHidden(): Set<string> {
+  if (typeof window === "undefined") return new Set()
+  try {
+    const raw = localStorage.getItem(HIDDEN_KEY)
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+  } catch { return new Set() }
+}
+
+function saveHidden(ids: Set<string>) {
+  localStorage.setItem(HIDDEN_KEY, JSON.stringify([...ids]))
+}
 
 const aiRecommendations: Record<string, string[]> = {
   "1": [
@@ -46,8 +60,16 @@ const aiRecommendations: Record<string, string[]> = {
   ],
 }
 
-function ManagerCard({ manager, isSelected, onClick }: { manager: Manager; isSelected: boolean; onClick: () => void }) {
-  const planColor = manager.plan_percent >= 100 ? "text-emerald-400" : manager.plan_percent >= 70 ? "text-amber-400" : "text-red-400"
+function ManagerCard({
+  manager, isSelected, isHidden, editMode, onClick, onToggleHide,
+}: {
+  manager: Manager
+  isSelected: boolean
+  isHidden: boolean
+  editMode: boolean
+  onClick: () => void
+  onToggleHide: (e: React.MouseEvent) => void
+}) {
   const planBadge = manager.plan_percent >= 100 ? "success" : manager.plan_percent >= 70 ? "warning" : "danger"
 
   return (
@@ -55,7 +77,8 @@ function ManagerCard({ manager, isSelected, onClick }: { manager: Manager; isSel
       onClick={onClick}
       className={cn(
         "w-full rounded-xl border p-4 text-left transition-all",
-        isSelected
+        isHidden ? "opacity-40" : "",
+        isSelected && !isHidden
           ? "border-blue-500/50 bg-blue-500/10"
           : "border-slate-700/50 bg-slate-800/40 hover:border-slate-600"
       )}
@@ -70,28 +93,65 @@ function ManagerCard({ manager, isSelected, onClick }: { manager: Manager; isSel
             <p className="text-xs text-slate-500">{manager.last_activity}</p>
           </div>
         </div>
-        <Badge variant={planBadge as any}>{Math.round(manager.plan_percent)}%</Badge>
+        {editMode ? (
+          <button
+            onClick={onToggleHide}
+            className={cn(
+              "rounded p-1 transition-colors",
+              isHidden ? "text-slate-500 hover:text-slate-300" : "text-slate-400 hover:text-red-400"
+            )}
+          >
+            {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        ) : (
+          !isHidden && <Badge variant={planBadge as any}>{Math.round(manager.plan_percent)}%</Badge>
+        )}
       </div>
-      <Progress
-        value={Math.min(manager.plan_percent, 100)}
-        className="h-1.5"
-        indicatorClassName={
-          manager.plan_percent >= 100 ? "bg-emerald-500" :
-          manager.plan_percent >= 70 ? "bg-amber-500" : "bg-red-500"
-        }
-      />
-      <div className="mt-2 flex justify-between text-xs text-slate-500">
-        <span>{formatCurrency(manager.revenue)}</span>
-        <span>{manager.deals_count} сд.</span>
-      </div>
+      {!isHidden && (
+        <>
+          <Progress
+            value={Math.min(manager.plan_percent, 100)}
+            className="h-1.5"
+            indicatorClassName={
+              manager.plan_percent >= 100 ? "bg-emerald-500" :
+              manager.plan_percent >= 70 ? "bg-amber-500" : "bg-red-500"
+            }
+          />
+          <div className="mt-2 flex justify-between text-xs text-slate-500">
+            <span>{formatCurrency(manager.revenue)}</span>
+            <span>{manager.deals_count} сд.</span>
+          </div>
+        </>
+      )}
     </button>
   )
 }
 
 export default function ManagersPage() {
   const { data, isDemo } = useAmo()
-  const managers = data.managers
-  const [selected, setSelected] = useState<Manager>(managers[0])
+  const allManagers = data.managers
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
+  const [editMode, setEditMode] = useState(false)
+
+  useEffect(() => {
+    setHiddenIds(loadHidden())
+  }, [])
+
+  const managers = allManagers.filter((m) => !hiddenIds.has(m.id))
+  const [selected, setSelected] = useState<Manager | null>(null)
+  const sel: Manager | null = (selected && !hiddenIds.has(selected.id)) ? selected : (managers[0] ?? null)
+
+  const toggleHide = (id: string) => {
+    setHiddenIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      saveHidden(next)
+      return next
+    })
+  }
+
+  if (!sel) return null
 
   const teamData = managers.map((m) => ({
     name: m.name.split(" ")[0],
@@ -100,15 +160,15 @@ export default function ManagersPage() {
   }))
 
   const radarData = [
-    { subject: "План", value: Math.min(selected.plan_percent, 120) },
-    { subject: "Конверсия", value: (selected.conversion / 30) * 100 },
-    { subject: "Звонки", value: Math.min((selected.calls_count / 120) * 100, 100) },
-    { subject: "Скорость", value: Math.max(100 - selected.avg_deal_days * 2, 10) },
-    { subject: "Активность", value: selected.stalled_deals === 0 ? 100 : Math.max(100 - selected.stalled_deals * 15, 10) },
+    { subject: "План", value: Math.min(sel.plan_percent, 120) },
+    { subject: "Конверсия", value: (sel.conversion / 30) * 100 },
+    { subject: "Звонки", value: Math.min((sel.calls_count / 120) * 100, 100) },
+    { subject: "Скорость", value: Math.max(100 - sel.avg_deal_days * 2, 10) },
+    { subject: "Активность", value: sel.stalled_deals === 0 ? 100 : Math.max(100 - sel.stalled_deals * 15, 10) },
   ]
 
-  const recommendations = aiRecommendations[selected.id] || []
-  const criticalCount = recommendations.filter((r) => r.includes("Критично") || r.includes("срочная") || r.includes("Критично")).length
+  const recommendations = aiRecommendations[sel.id] || []
+  const criticalCount = recommendations.filter((r) => r.includes("Критично") || r.includes("срочная")).length
 
   return (
     <AppLayout title="Менеджеры" subtitle={isDemo ? "Аналитика · Демо-данные" : "Аналитика · данные из AmoCRM"}>
@@ -117,14 +177,32 @@ export default function ManagersPage() {
         <div className="col-span-3 space-y-2">
           <div className="mb-3 flex items-center justify-between px-1">
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Менеджеры</p>
-            <Badge variant="secondary">{managers.length}</Badge>
+            <div className="flex items-center gap-1.5">
+              <Badge variant="secondary">{managers.length}</Badge>
+              <button
+                onClick={() => setEditMode((v) => !v)}
+                className={cn(
+                  "rounded p-1 transition-colors",
+                  editMode ? "text-blue-400" : "text-slate-500 hover:text-slate-300"
+                )}
+                title="Настроить список"
+              >
+                <Settings2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
-          {managers.map((m) => (
+          {editMode && (
+            <p className="px-1 text-xs text-slate-500">Нажмите <Eye className="inline h-3 w-3" /> чтобы скрыть менеджера из аналитики</p>
+          )}
+          {allManagers.map((m) => (
             <ManagerCard
               key={m.id}
               manager={m}
-              isSelected={selected.id === m.id}
-              onClick={() => setSelected(m)}
+              isSelected={sel.id === m.id}
+              isHidden={hiddenIds.has(m.id)}
+              editMode={editMode}
+              onClick={() => { if (!hiddenIds.has(m.id)) setSelected(m) }}
+              onToggleHide={(e) => { e.stopPropagation(); toggleHide(m.id) }}
             />
           ))}
         </div>
@@ -136,35 +214,35 @@ export default function ManagersPage() {
             <CardContent className="p-5">
               <div className="flex items-start gap-4">
                 <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-lg font-bold text-white">
-                  {selected.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
+                  {sel.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-1">
-                    <h2 className="text-lg font-bold text-slate-100">{selected.name}</h2>
-                    {selected.plan_percent >= 100 && <Star className="h-4 w-4 text-amber-400 fill-amber-400" />}
-                    {selected.stalled_deals > 3 && <AlertTriangle className="h-4 w-4 text-red-400" />}
+                    <h2 className="text-lg font-bold text-slate-100">{sel.name}</h2>
+                    {sel.plan_percent >= 100 && <Star className="h-4 w-4 text-amber-400 fill-amber-400" />}
+                    {sel.stalled_deals > 3 && <AlertTriangle className="h-4 w-4 text-red-400" />}
                   </div>
-                  <p className="text-sm text-slate-400">{selected.email}</p>
+                  <p className="text-sm text-slate-400">{sel.email}</p>
                   <div className="mt-3 flex items-center gap-1">
                     <Progress
-                      value={Math.min(selected.plan_percent, 100)}
+                      value={Math.min(sel.plan_percent, 100)}
                       className="h-2 flex-1 max-w-xs"
                       indicatorClassName={
-                        selected.plan_percent >= 100 ? "bg-emerald-500" :
-                        selected.plan_percent >= 70 ? "bg-amber-500" : "bg-red-500"
+                        sel.plan_percent >= 100 ? "bg-emerald-500" :
+                        sel.plan_percent >= 70 ? "bg-amber-500" : "bg-red-500"
                       }
                     />
                     <span className={`text-sm font-bold ml-2 ${
-                      selected.plan_percent >= 100 ? "text-emerald-400" :
-                      selected.plan_percent >= 70 ? "text-amber-400" : "text-red-400"
+                      sel.plan_percent >= 100 ? "text-emerald-400" :
+                      sel.plan_percent >= 70 ? "text-amber-400" : "text-red-400"
                     }`}>
-                      {selected.plan_percent.toFixed(1)}% плана
+                      {sel.plan_percent.toFixed(1)}% плана
                     </span>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-2xl font-bold text-slate-100">{formatCurrency(selected.revenue)}</p>
-                  <p className="text-xs text-slate-500">из {formatCurrency(selected.plan)}</p>
+                  <p className="text-2xl font-bold text-slate-100">{formatCurrency(sel.revenue)}</p>
+                  <p className="text-xs text-slate-500">из {formatCurrency(sel.plan)}</p>
                 </div>
               </div>
             </CardContent>
@@ -173,10 +251,10 @@ export default function ManagersPage() {
           {/* KPI row */}
           <div className="grid grid-cols-4 gap-3">
             {[
-              { label: "Сделок", value: selected.deals_count, icon: Target, color: "text-blue-400", bg: "bg-blue-500/10" },
-              { label: "Звонков", value: selected.calls_count, icon: Phone, color: "text-emerald-400", bg: "bg-emerald-500/10" },
-              { label: "Конверсия", value: formatPercent(selected.conversion), icon: TrendingUp, color: "text-violet-400", bg: "bg-violet-500/10" },
-              { label: "Ср. дней на сделку", value: selected.avg_deal_days, icon: Clock, color: "text-amber-400", bg: "bg-amber-500/10" },
+              { label: "Сделок", value: sel.deals_count, icon: Target, color: "text-blue-400", bg: "bg-blue-500/10" },
+              { label: "Звонков", value: sel.calls_count, icon: Phone, color: "text-emerald-400", bg: "bg-emerald-500/10" },
+              { label: "Конверсия", value: formatPercent(sel.conversion), icon: TrendingUp, color: "text-violet-400", bg: "bg-violet-500/10" },
+              { label: "Ср. дней на сделку", value: sel.avg_deal_days, icon: Clock, color: "text-amber-400", bg: "bg-amber-500/10" },
             ].map((kpi) => {
               const Icon = kpi.icon
               return (
@@ -206,7 +284,7 @@ export default function ManagersPage() {
                   <RadarChart data={radarData}>
                     <PolarGrid stroke="#1e293b" />
                     <PolarAngleAxis dataKey="subject" tick={{ fill: "#64748b", fontSize: 11 }} />
-                    <Radar name={selected.name} dataKey="value" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.25} strokeWidth={2} />
+                    <Radar name={sel.name} dataKey="value" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.25} strokeWidth={2} />
                   </RadarChart>
                 </ResponsiveContainer>
               </CardContent>

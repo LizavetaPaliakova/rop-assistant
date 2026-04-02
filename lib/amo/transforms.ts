@@ -47,24 +47,24 @@ export function transformPipelines(
 export function transformManagers(
   amoUsers: AmoUser[],
   leads: AmoLead[],
+  wonLeadsAll: AmoLead[],
   events: AmoEvent[],
   planPerManager = 3_000_000
 ): Manager[] {
   const now = Math.floor(Date.now() / 1000)
   const thirtyDaysAgo = now - 30 * 86400
-  const threeDaysAgo = now - 3 * 86400
 
   return amoUsers.map((user) => {
     const userLeads = leads.filter((l) => l.responsible_user_id === user.id)
     const openLeads = userLeads.filter(
       (l) => l.status_id !== AMO_WON_STATUS && l.status_id !== AMO_LOST_STATUS
     )
-    const wonLeads = userLeads.filter((l) => l.status_id === AMO_WON_STATUS)
-    const recentLeads = userLeads.filter((l) => l.updated_at >= thirtyDaysAgo)
+    // Use separately fetched won leads for revenue calculation
+    const userWonLeads = wonLeadsAll.filter((l) => l.responsible_user_id === user.id)
 
     // Revenue from won deals in last 30 days
-    const revenue = wonLeads
-      .filter((l) => (l.closed_at || 0) >= thirtyDaysAgo)
+    const revenue = userWonLeads
+      .filter((l) => (l.closed_at || l.updated_at || 0) >= thirtyDaysAgo)
       .reduce((sum, l) => sum + (l.price || 0), 0)
 
     // Stalled deals (no activity for STALL_DAYS)
@@ -88,13 +88,15 @@ export function transformManagers(
     const lostRecent = userLeads.filter(
       (l) => l.status_id === AMO_LOST_STATUS && (l.closed_at || 0) >= thirtyDaysAgo
     ).length
-    const wonRecent = wonLeads.filter((l) => (l.closed_at || 0) >= thirtyDaysAgo).length
+    const wonRecent = userWonLeads.filter(
+      (l) => (l.closed_at || l.updated_at || 0) >= thirtyDaysAgo
+    ).length
     const conversion = wonRecent + lostRecent > 0
       ? (wonRecent / (wonRecent + lostRecent)) * 100
       : 0
 
     // Avg deal days from created to closed
-    const closedWithDuration = wonLeads.filter((l) => l.closed_at)
+    const closedWithDuration = userWonLeads.filter((l) => l.closed_at)
     const avgDealDays = closedWithDuration.length > 0
       ? Math.round(
           closedWithDuration.reduce(
@@ -129,6 +131,7 @@ export function transformManagers(
 
 export function calcDashboardStats(
   leads: AmoLead[],
+  wonLeadsAll: AmoLead[],
   managers: Manager[]
 ): DashboardStats {
   const now = Math.floor(Date.now() / 1000)
@@ -138,14 +141,14 @@ export function calcDashboardStats(
   const openLeads = leads.filter(
     (l) => l.status_id !== AMO_WON_STATUS && l.status_id !== AMO_LOST_STATUS
   )
-  const wonThisMonth = leads.filter(
-    (l) => l.status_id === AMO_WON_STATUS && (l.closed_at || 0) >= thirtyDaysAgo
+  // Use separately fetched won leads for revenue
+  const wonThisMonth = wonLeadsAll.filter(
+    (l) => (l.closed_at || l.updated_at || 0) >= thirtyDaysAgo
   )
-  const wonLastMonth = leads.filter(
+  const wonLastMonth = wonLeadsAll.filter(
     (l) =>
-      l.status_id === AMO_WON_STATUS &&
-      (l.closed_at || 0) >= sixtyDaysAgo &&
-      (l.closed_at || 0) < thirtyDaysAgo
+      (l.closed_at || l.updated_at || 0) >= sixtyDaysAgo &&
+      (l.closed_at || l.updated_at || 0) < thirtyDaysAgo
   )
   const lostThisMonth = leads.filter(
     (l) => l.status_id === AMO_LOST_STATUS && (l.closed_at || 0) >= thirtyDaysAgo
@@ -241,7 +244,7 @@ export function generateAlerts(managers: Manager[], leads: AmoLead[]): AiAlert[]
 
 // ─── Weekly chart data ────────────────────────────────────────────────────────
 
-export function buildWeeklyData(leads: AmoLead[], events: AmoEvent[]) {
+export function buildWeeklyData(leads: AmoLead[], wonLeadsAll: AmoLead[], events: AmoEvent[]) {
   const weeks: { week: string; deals: number; revenue: number; calls: number }[] = []
   const now = Date.now()
 
@@ -253,7 +256,11 @@ export function buildWeeklyData(leads: AmoLead[], events: AmoEvent[]) {
     const toSec = to / 1000
 
     const weekLeads = leads.filter((l) => l.created_at >= fromSec && l.created_at < toSec)
-    const wonLeads = weekLeads.filter((l) => l.status_id === AMO_WON_STATUS)
+    // Won leads closed/updated in this week
+    const weekWon = wonLeadsAll.filter((l) => {
+      const ts = (l.closed_at || l.updated_at || 0)
+      return ts >= fromSec && ts < toSec
+    })
     const weekCalls = events.filter((e) => e.created_at >= fromSec && e.created_at < toSec)
 
     const date = new Date(from)
@@ -262,7 +269,7 @@ export function buildWeeklyData(leads: AmoLead[], events: AmoEvent[]) {
     weeks.push({
       week: label,
       deals: weekLeads.length,
-      revenue: wonLeads.reduce((s, l) => s + (l.price || 0), 0),
+      revenue: weekWon.reduce((s, l) => s + (l.price || 0), 0),
       calls: weekCalls.length,
     })
   }

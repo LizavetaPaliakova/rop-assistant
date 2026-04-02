@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
-  fetchPipelines, fetchLeads, fetchUsers, fetchCallEvents, refreshAccessToken,
+  fetchPipelines, fetchLeads, fetchWonLeads, fetchUsers, fetchCallEvents, refreshAccessToken,
 } from "@/lib/amo/client"
 import {
   transformPipelines, transformManagers, calcDashboardStats,
@@ -53,25 +53,27 @@ export async function POST(req: NextRequest) {
 
   try {
     // Fetch all data in parallel
-    const [amoPipelines, amoLeads, amoUsers, amoEvents] = await Promise.all([
+    const [amoPipelines, amoLeads, amoWonLeads, amoUsers, amoEvents] = await Promise.all([
       fetchPipelines(domain, token),
       fetchLeads(domain, token),
+      fetchWonLeads(domain, token, 90),
       fetchUsers(domain, token),
       fetchCallEvents(domain, token, 30),
     ])
 
     // Transform to our types
     const pipelines = transformPipelines(amoPipelines, amoLeads)
-    const managers = transformManagers(amoUsers, amoLeads, amoEvents)
-    const stats = calcDashboardStats(amoLeads, managers)
+    const managers = transformManagers(amoUsers, amoLeads, amoWonLeads, amoEvents)
+    const stats = calcDashboardStats(amoLeads, amoWonLeads, managers)
     const alerts = generateAlerts(managers, amoLeads)
-    const weeklyData = buildWeeklyData(amoLeads, amoEvents)
+    const weeklyData = buildWeeklyData(amoLeads, amoWonLeads, amoEvents)
 
     const result = NextResponse.json({
       success: true,
       stats: {
         pipelines: amoPipelines.length,
         leads: amoLeads.length,
+        wonLeads: amoWonLeads.length,
         managers: amoUsers.length,
       },
       data: {
