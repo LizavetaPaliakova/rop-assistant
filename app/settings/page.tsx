@@ -24,7 +24,7 @@ function SettingsContent() {
 
   // AmoCRM
   const [connectMode, setConnectMode] = useState<AmoConnectMode>("token")
-  const [amoDomain, setAmoDomain] = useState("aiexpert")
+  const [amoDomain, setAmoDomain] = useState("")
   const [amoToken, setAmoToken] = useState("")
   const [showAmoToken, setShowAmoToken] = useState(false)
   const [amoConnecting, setAmoConnecting] = useState(false)
