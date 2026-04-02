@@ -144,27 +144,46 @@ export async function fetchPipelines(domain: string, token: string): Promise<Amo
   return data._embedded?.pipelines || []
 }
 
+const JAN_2026 = Math.floor(new Date("2026-01-01T00:00:00Z").getTime() / 1000)
+
 // Fetch open (active) leads
-export async function fetchLeads(domain: string, token: string, daysBack = 90): Promise<AmoLead[]> {
-  const since = Math.floor(Date.now() / 1000) - daysBack * 86400
-  return amoGetAll<AmoLead>(domain, token, "/leads", "leads", {
-    "filter[updated_at][from]": String(since),
+export async function fetchLeads(
+  domain: string,
+  token: string,
+  pipelineIds: number[] = []
+): Promise<AmoLead[]> {
+  const params: Record<string, string> = {
+    "filter[created_at][from]": String(JAN_2026),
     order: "updated_at",
+  }
+  pipelineIds.forEach((id, i) => {
+    params[`filter[pipeline_id][${i}]`] = String(id)
   })
+  return amoGetAll<AmoLead>(domain, token, "/leads", "leads", params, 4)
 }
 
-// Fetch won (closed+won) leads for revenue — status_id 142 = Успешно реализовано
-export async function fetchWonLeads(domain: string, token: string, daysBack = 90): Promise<AmoLead[]> {
-  const since = Math.floor(Date.now() / 1000) - daysBack * 86400
+// Fetch won (closed+won) leads for revenue
+export async function fetchWonLeads(
+  domain: string,
+  token: string,
+  paymentStatusIds: number[],
+  pipelineIds: number[] = []
+): Promise<AmoLead[]> {
+  const statusIds = paymentStatusIds.length > 0 ? paymentStatusIds : [142]
   try {
-    return amoGetAll<AmoLead>(domain, token, "/leads", "leads", {
-      "filter[statuses][0][status_id]": "142",
-      "filter[updated_at][from]": String(since),
-      order: "updated_at",
-    })
-  } catch {
-    return []
-  }
+    const results: AmoLead[] = []
+    for (let si = 0; si < statusIds.length; si++) {
+      const params: Record<string, string> = {
+        "filter[created_at][from]": String(JAN_2026),
+        [`filter[statuses][${si}][status_id]`]: String(statusIds[si]),
+        order: "updated_at",
+      }
+      pipelineIds.forEach((id, i) => { params[`filter[pipeline_id][${i}]`] = String(id) })
+      const batch = await amoGetAll<AmoLead>(domain, token, "/leads", "leads", params, 4)
+      results.push(...batch)
+    }
+    return [...new Map(results.map(l => [l.id, l])).values()]
+  } catch { return [] }
 }
 
 // Fetch all users and filter to active only (rights.is_active !== false)

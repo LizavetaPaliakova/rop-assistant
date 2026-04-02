@@ -6,6 +6,7 @@ import {
   transformPipelines, transformManagers, calcDashboardStats,
   generateAlerts, buildWeeklyData,
 } from "@/lib/amo/transforms"
+import { loadSettings } from "@/lib/settings/storage"
 
 const COOKIE_OPTS = {
   httpOnly: true,
@@ -15,7 +16,6 @@ const COOKIE_OPTS = {
 }
 
 export async function POST(req: NextRequest) {
-  // Токен из cookies (OAuth или connect-token)
   let domain = req.cookies.get("amo_domain")?.value
   let accessToken = req.cookies.get("amo_access_token")?.value
   const refreshToken = req.cookies.get("amo_refresh_token")?.value
@@ -30,7 +30,6 @@ export async function POST(req: NextRequest) {
 
   let newTokens: { access_token: string; refresh_token: string; expires_in: number } | null = null
 
-  // Долгосрочный токен — рефреш не нужен
   if (!isLongTerm) {
     const isExpired = !expiresAt || Date.now() > parseInt(expiresAt) - 300_000
     if (isExpired && refreshToken) {
@@ -46,21 +45,26 @@ export async function POST(req: NextRequest) {
   const token = accessToken!
 
   try {
-    // Fetch all data — each wrapped in its own try/catch so one failure doesn't kill sync
+    const settings = await loadSettings()
+    const pipelineIds = settings.selectedPipelineIds
+
     const safe = <T>(p: Promise<T>, fallback: T) => p.catch((e) => { console.warn("AMO fetch warn:", e?.message); return fallback })
 
     const [amoPipelines, amoLeads, amoWonLeads, amoUsers, amoEvents] = await Promise.all([
       safe(fetchPipelines(domain, token), []),
-      safe(fetchLeads(domain, token, 90), []),
-      safe(fetchWonLeads(domain, token, 60), []),   // 60 days, max 4 pages
+      safe(fetchLeads(domain, token, pipelineIds), []),
+      safe(fetchWonLeads(domain, token, settings.paymentStatusIds, pipelineIds), []),
       safe(fetchUsers(domain, token), []),
       safe(fetchCallEvents(domain, token, 30), []),
     ])
 
-    // Transform to our types
-    const pipelines = transformPipelines(amoPipelines, amoLeads)
-    const managers = transformManagers(amoUsers, amoLeads, amoWonLeads, amoEvents)
-    const stats = calcDashboardStats(amoLeads, amoWonLeads, managers)
+    const filteredPipelines = settings.selectedPipelineIds.length > 0
+      ? amoPipelines.filter(p => settings.selectedPipelineIds.includes(p.id))
+      : amoPipelines
+
+    const pipelines = transformPipelines(filteredPipelines, amoLeads, amoWonLeads, settings)
+    const managers = transformManagers(amoUsers, amoLeads, amoWonLeads, amoEvents, settings)
+    const stats = calcDashboardStats(amoLeads, amoWonLeads, settings)
     const alerts = generateAlerts(managers, amoLeads)
     const weeklyData = buildWeeklyData(amoLeads, amoWonLeads, amoEvents)
 
@@ -78,11 +82,10 @@ export async function POST(req: NextRequest) {
         stats,
         alerts,
         weeklyData,
-        activityData: [], // not computed from AMO events yet
+        activityData: [],
       },
     })
 
-    // Persist refreshed tokens if we just refreshed
     if (newTokens) {
       result.cookies.set("amo_access_token", newTokens.access_token, {
         ...COOKIE_OPTS,

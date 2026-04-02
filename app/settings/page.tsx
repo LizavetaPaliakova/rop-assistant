@@ -11,27 +11,26 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   CheckCircle, XCircle, RefreshCw, ExternalLink,
-  Shield, Bot, Zap, AlertTriangle, Eye, EyeOff, Unplug,
+  Shield, Bot, Zap, Eye, EyeOff, Unplug,
 } from "lucide-react"
 import { useAmo } from "@/context/amo-context"
-import { useStageFilter } from "@/lib/hooks/use-stage-filter"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
+import type { UserSettings } from "@/lib/settings/storage"
 
 type TgStatus = "idle" | "testing" | "connected" | "error"
 type AmoConnectMode = "token" | "oauth"
 
+const DEFAULT_SETTINGS: UserSettings = {
+  selectedPipelineIds: [],
+  paymentStatusIds: [],
+  activeStatusIds: [],
+  monthlyPlan: 0,
+  managerPlans: {},
+}
+
 function SettingsContent() {
   const { connection, data, isSyncing, sync, disconnect, refreshConnection } = useAmo()
-  const { isIncluded, toggleStage, excluded, resetFilter, seedLostStages } = useStageFilter()
-
-  useEffect(() => {
-    if (!connection.connected) return
-    const lostIds = data.pipelines.flatMap((p) =>
-      p.stages.filter((s) => s.type === 143).map((s) => s.id)
-    )
-    seedLostStages(lostIds)
-  }, [connection.connected, data.pipelines, seedLostStages])
   const searchParams = useSearchParams()
 
   // AmoCRM
@@ -54,7 +53,68 @@ function SettingsContent() {
   const [showAiKey, setShowAiKey] = useState(false)
   const [aiSaved, setAiSaved] = useState(false)
 
-  // Read URL params after OAuth redirect
+  // User settings from Redis
+  const [appSettings, setAppSettings] = useState<UserSettings>(DEFAULT_SETTINGS)
+  const [settingsSaving, setSettingsSaving] = useState(false)
+  const [monthlyPlanInput, setMonthlyPlanInput] = useState("0")
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => r.json())
+      .then((s: UserSettings) => {
+        setAppSettings(s)
+        setMonthlyPlanInput(String(s.monthlyPlan || 0))
+      })
+      .catch(() => {})
+  }, [])
+
+  const handleSaveSettings = async () => {
+    setSettingsSaving(true)
+    try {
+      const updated = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...appSettings,
+          monthlyPlan: parseInt(monthlyPlanInput || "0", 10) || 0,
+        }),
+      }).then((r) => r.json())
+      setAppSettings(updated)
+    } catch {}
+    setSettingsSaving(false)
+  }
+
+  const togglePipelineId = (id: number) => {
+    setAppSettings((prev) => {
+      const ids = prev.selectedPipelineIds.includes(id)
+        ? prev.selectedPipelineIds.filter((x) => x !== id)
+        : [...prev.selectedPipelineIds, id]
+      return { ...prev, selectedPipelineIds: ids }
+    })
+  }
+
+  const togglePaymentStatus = (id: number) => {
+    setAppSettings((prev) => {
+      const ids = prev.paymentStatusIds.includes(id)
+        ? prev.paymentStatusIds.filter((x) => x !== id)
+        : [...prev.paymentStatusIds, id]
+      return { ...prev, paymentStatusIds: ids }
+    })
+  }
+
+  const toggleActiveStatus = (id: number) => {
+    setAppSettings((prev) => {
+      const ids = prev.activeStatusIds.includes(id)
+        ? prev.activeStatusIds.filter((x) => x !== id)
+        : [...prev.activeStatusIds, id]
+      return { ...prev, activeStatusIds: ids }
+    })
+  }
+
+  const relevantPipelines = appSettings.selectedPipelineIds.length > 0
+    ? data.pipelines.filter((p) => appSettings.selectedPipelineIds.includes(p.amo_id))
+    : data.pipelines
+
   useEffect(() => {
     const connected = searchParams.get("amo_connected")
     const error = searchParams.get("error")
@@ -62,7 +122,6 @@ function SettingsContent() {
 
     if (connected === "1") {
       refreshConnection()
-      // Clean URL
       window.history.replaceState({}, "", "/settings")
     }
     if (error) {
@@ -87,9 +146,9 @@ function SettingsContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ domain, token }),
       })
-      const data = await res.json()
+      const body = await res.json()
       if (!res.ok) {
-        setAmoError(data.error || "Ошибка подключения")
+        setAmoError(body.error || "Ошибка подключения")
       } else {
         await refreshConnection()
         await sync()
@@ -124,10 +183,6 @@ function SettingsContent() {
     }, 800)
   }
 
-  const handleSync = async () => {
-    await sync()
-  }
-
   const handleDisconnect = async () => {
     if (!confirm("Отключить AmoCRM? Данные в приложении останутся в демо-режиме.")) return
     await disconnect()
@@ -149,13 +204,11 @@ function SettingsContent() {
   }
 
   const handleSaveAiKey = () => {
-    // In production: POST to /api/settings to persist in Supabase
     localStorage.setItem("anthropic_api_key", aiKey)
     setAiSaved(true)
     setTimeout(() => setAiSaved(false), 2000)
   }
 
-  // Load saved AI key
   useEffect(() => {
     const saved = localStorage.getItem("anthropic_api_key")
     if (saved) setAiKey(saved)
@@ -193,11 +246,8 @@ function SettingsContent() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-
-            {/* Not connected */}
             {!connection.connected && (
               <>
-                {/* Mode switcher */}
                 <div className="flex gap-2">
                   <button
                     onClick={() => setConnectMode("token")}
@@ -207,7 +257,7 @@ function SettingsContent() {
                         : "border-slate-700 bg-slate-800/40 text-slate-400 hover:border-slate-600"
                     }`}
                   >
-                    🔑 Долгосрочный токен
+                    Долгосрочный токен
                   </button>
                   <button
                     onClick={() => setConnectMode("oauth")}
@@ -227,7 +277,6 @@ function SettingsContent() {
                   </div>
                 )}
 
-                {/* Token mode */}
                 {connectMode === "token" && (
                   <div className="space-y-3">
                     <div className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-3 text-xs text-slate-400">
@@ -267,17 +316,16 @@ function SettingsContent() {
                       className="w-full"
                     >
                       {amoConnecting
-                        ? <><RefreshCw className="h-4 w-4 animate-spin" /> Подключение и синхронизация...</>
+                        ? <><RefreshCw className="h-4 w-4 animate-spin" /> Подключение...</>
                         : <><CheckCircle className="h-4 w-4" /> Подключить</>}
                     </Button>
                   </div>
                 )}
 
-                {/* OAuth mode */}
                 {connectMode === "oauth" && (
                   <div className="space-y-3">
                     <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-400">
-                      Нужны <b className="text-amber-300">Client ID</b> и <b className="text-amber-300">Client Secret</b> из настроек интеграции AmoCRM, прописанные в <code className="bg-slate-800 px-1 rounded">.env.local</code>
+                      Нужны <b className="text-amber-300">Client ID</b> и <b className="text-amber-300">Client Secret</b> из настроек интеграции AmoCRM
                     </div>
                     <div className="space-y-1.5">
                       <Label>Поддомен AmoCRM</Label>
@@ -302,7 +350,6 @@ function SettingsContent() {
               </>
             )}
 
-            {/* Connected */}
             {connection.connected && (
               <>
                 <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4">
@@ -343,7 +390,7 @@ function SettingsContent() {
                     </Select>
                   </div>
                   <div className="pt-6">
-                    <Button variant="outline" size="sm" onClick={handleSync} disabled={isSyncing}>
+                    <Button variant="outline" size="sm" onClick={() => sync()} disabled={isSyncing}>
                       <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
                       {isSyncing ? "Синхронизация..." : "Синхронизировать сейчас"}
                     </Button>
@@ -353,6 +400,181 @@ function SettingsContent() {
             )}
           </CardContent>
         </Card>
+
+        {/* ── Analytics settings (only when connected) ── */}
+        {connection.connected && data.pipelines.length > 0 && (
+          <>
+            {/* Section A: Воронки для аналитики */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/15 text-lg">
+                    <span className="text-blue-400 font-bold text-sm">V</span>
+                  </div>
+                  <div>
+                    <CardTitle>Воронки для аналитики</CardTitle>
+                    <CardDescription>Выберите воронки, которые включаются в расчёты</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {data.pipelines.map((pipeline) => (
+                  <div
+                    key={pipeline.id}
+                    className={cn(
+                      "flex items-center justify-between rounded-lg px-3 py-2 transition-colors",
+                      appSettings.selectedPipelineIds.includes(pipeline.amo_id)
+                        ? "bg-slate-800/40"
+                        : "bg-slate-900/40 opacity-60"
+                    )}
+                  >
+                    <span className="text-sm text-slate-200">{pipeline.name}</span>
+                    <Switch
+                      checked={appSettings.selectedPipelineIds.includes(pipeline.amo_id)}
+                      onCheckedChange={() => togglePipelineId(pipeline.amo_id)}
+                    />
+                  </div>
+                ))}
+                <p className="text-xs text-slate-500 pt-1">
+                  Если ничего не выбрано — используются все воронки
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Section B: Статусы оплаты */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/15 text-lg">
+                    <span className="text-emerald-400 font-bold text-sm">₽</span>
+                  </div>
+                  <div>
+                    <CardTitle>Статусы оплаты</CardTitle>
+                    <CardDescription>Сделки в этих статусах считаются оплатой и включаются в выручку</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {relevantPipelines.map((pipeline) => (
+                  <div key={pipeline.id} className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{pipeline.name}</p>
+                    <div className="space-y-1">
+                      {pipeline.stages.map((stage) => (
+                        <div
+                          key={stage.id}
+                          className={cn(
+                            "flex items-center justify-between rounded-lg px-3 py-2 transition-colors",
+                            appSettings.paymentStatusIds.includes(stage.amo_id)
+                              ? "bg-emerald-500/10"
+                              : "bg-slate-900/40 opacity-60"
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: stage.color || "#64748b" }}
+                            />
+                            <span className="text-sm text-slate-200">{stage.name}</span>
+                          </div>
+                          <Switch
+                            checked={appSettings.paymentStatusIds.includes(stage.amo_id)}
+                            onCheckedChange={() => togglePaymentStatus(stage.amo_id)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            {/* Section C: Активные сделки */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 text-lg">
+                    <span className="text-amber-400 font-bold text-sm">A</span>
+                  </div>
+                  <div>
+                    <CardTitle>Активные сделки</CardTitle>
+                    <CardDescription>Сделки в этих статусах отображаются как активные</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {relevantPipelines.map((pipeline) => (
+                  <div key={pipeline.id} className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{pipeline.name}</p>
+                    <div className="space-y-1">
+                      {pipeline.stages.filter((s) => s.type !== 143).map((stage) => (
+                        <div
+                          key={stage.id}
+                          className={cn(
+                            "flex items-center justify-between rounded-lg px-3 py-2 transition-colors",
+                            appSettings.activeStatusIds.includes(stage.amo_id)
+                              ? "bg-amber-500/10"
+                              : "bg-slate-900/40 opacity-60"
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: stage.color || "#64748b" }}
+                            />
+                            <span className="text-sm text-slate-200">{stage.name}</span>
+                          </div>
+                          <Switch
+                            checked={appSettings.activeStatusIds.includes(stage.amo_id)}
+                            onCheckedChange={() => toggleActiveStatus(stage.amo_id)}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <p className="text-xs text-slate-500 pt-1">
+                  Если ничего не выбрано — все незакрытые сделки считаются активными
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* Section D: План на месяц */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/15 text-lg">
+                    <span className="text-violet-400 font-bold text-sm">П</span>
+                  </div>
+                  <div>
+                    <CardTitle>План на месяц</CardTitle>
+                    <CardDescription>Общий план команды по выручке</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-3 max-w-xs">
+                  <div className="relative flex-1">
+                    <Input
+                      type="number"
+                      placeholder="0"
+                      value={monthlyPlanInput}
+                      onChange={(e) => setMonthlyPlanInput(e.target.value)}
+                      className="pr-8"
+                    />
+                    <span className="absolute right-3 top-2 text-sm text-slate-500">₽</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Save button */}
+            <div>
+              <Button onClick={handleSaveSettings} disabled={settingsSaving} className="w-full max-w-xs">
+                {settingsSaving ? <><RefreshCw className="h-4 w-4 animate-spin" /> Сохранение...</> : "Сохранить настройки"}
+              </Button>
+            </div>
+          </>
+        )}
 
         {/* ── Telegram ── */}
         <Card>
@@ -371,16 +593,6 @@ function SettingsContent() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-3 text-xs text-slate-400">
-              <p className="font-medium text-slate-300 mb-1.5">Как создать бота:</p>
-              <ol className="list-decimal list-inside space-y-1">
-                <li>Откройте <b className="text-slate-300">@BotFather</b> в Telegram → /newbot</li>
-                <li>Скопируйте токен и вставьте ниже</li>
-                <li>Добавьте бота в нужный чат</li>
-                <li>Узнайте Chat ID через <b className="text-slate-300">@userinfobot</b> или <b className="text-slate-300">@getmyid_bot</b></li>
-              </ol>
-            </div>
-
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Bot Token</Label>
@@ -426,7 +638,7 @@ function SettingsContent() {
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/15 text-lg">🤖</div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/15 text-lg">AI</div>
               <div>
                 <CardTitle>Claude AI</CardTitle>
                 <CardDescription>AI-анализ и рекомендации по команде</CardDescription>
@@ -458,63 +670,6 @@ function SettingsContent() {
             </div>
           </CardContent>
         </Card>
-
-        {/* ── Stage filter ── */}
-        {connection.connected && data.pipelines.length > 0 && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-500/15 text-lg">🔽</div>
-                <div>
-                  <CardTitle>Фильтр статусов воронок</CardTitle>
-                  <CardDescription>Выберите статусы, которые включаются в аналитику</CardDescription>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {data.pipelines.map((pipeline) => (
-                <div key={pipeline.id} className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{pipeline.name}</p>
-                  <div className="space-y-1">
-                    {pipeline.stages.map((stage) => {
-                      const included = isIncluded(stage.id)
-                      const isLost = stage.type === 143
-                      return (
-                        <div
-                          key={stage.id}
-                          className={cn(
-                            "flex items-center justify-between rounded-lg px-3 py-2 transition-colors",
-                            included ? "bg-slate-800/40" : "bg-slate-900/40 opacity-60"
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="h-2.5 w-2.5 rounded-full shrink-0"
-                              style={{ backgroundColor: stage.color || "#64748b" }}
-                            />
-                            <span className="text-sm text-slate-200">{stage.name}</span>
-                            {isLost && (
-                              <span className="text-xs text-red-400/70">(проигрыш)</span>
-                            )}
-                          </div>
-                          <Switch
-                            checked={included}
-                            onCheckedChange={() => toggleStage(stage.id)}
-                          />
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
-              {excluded.size > 0 && (
-                <Button variant="outline" size="sm" onClick={resetFilter}>
-                  Сбросить фильтр
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        )}
 
         {/* ── Danger zone ── */}
         <Card className="border-red-500/20">

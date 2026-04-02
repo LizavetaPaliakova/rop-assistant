@@ -16,6 +16,7 @@ export const mockManagers: Manager[] = [
     avg_deal_days: 18,
     last_activity: "2 часа назад",
     stalled_deals: 2,
+    sales_this_month: 5,
   },
   {
     id: "2",
@@ -32,6 +33,7 @@ export const mockManagers: Manager[] = [
     avg_deal_days: 31,
     last_activity: "3 дня назад",
     stalled_deals: 5,
+    sales_this_month: 2,
   },
   {
     id: "3",
@@ -48,6 +50,7 @@ export const mockManagers: Manager[] = [
     avg_deal_days: 14,
     last_activity: "30 минут назад",
     stalled_deals: 0,
+    sales_this_month: 8,
   },
   {
     id: "4",
@@ -64,6 +67,7 @@ export const mockManagers: Manager[] = [
     avg_deal_days: 22,
     last_activity: "Вчера",
     stalled_deals: 3,
+    sales_this_month: 4,
   },
   {
     id: "5",
@@ -80,6 +84,7 @@ export const mockManagers: Manager[] = [
     avg_deal_days: 26,
     last_activity: "Сегодня",
     stalled_deals: 4,
+    sales_this_month: 3,
   },
 ]
 
@@ -97,6 +102,9 @@ export const mockPipelines: Pipeline[] = [
       { id: "s4", amo_id: 304, name: "Переговоры", deals_count: 23, revenue: 3_200_000 },
       { id: "s5", amo_id: 305, name: "Закрыто", deals_count: 18, revenue: 2_700_000 },
     ],
+    created_this_month: 48,
+    sales_this_month: 18,
+    revenue_this_month: 2_700_000,
   },
   {
     id: "2",
@@ -110,6 +118,9 @@ export const mockPipelines: Pipeline[] = [
       { id: "s8", amo_id: 308, name: "Согласование", deals_count: 41, revenue: 3_800_000 },
       { id: "s9", amo_id: 309, name: "Оплата", deals_count: 28, revenue: 2_900_000 },
     ],
+    created_this_month: 34,
+    sales_this_month: 28,
+    revenue_this_month: 2_900_000,
   },
   {
     id: "3",
@@ -122,12 +133,16 @@ export const mockPipelines: Pipeline[] = [
       { id: "s11", amo_id: 311, name: "Обработка", deals_count: 45, revenue: 0 },
       { id: "s12", amo_id: 312, name: "Закрыт", deals_count: 22, revenue: 1_800_000 },
     ],
+    created_this_month: 21,
+    sales_this_month: 22,
+    revenue_this_month: 1_800_000,
   },
 ]
 
 export const mockDashboardStats: DashboardStats = {
   total_deals: 127,
   total_revenue: 9_560_000,
+  revenue_last_month: 8_820_000,
   conversion: 18.3,
   avg_deal_days: 22,
   deals_delta: 12,
