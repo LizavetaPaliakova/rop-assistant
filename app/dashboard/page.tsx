@@ -12,9 +12,11 @@ import {
   TrendingUp, TrendingDown, DollarSign, Target,
   Clock, AlertTriangle, AlertCircle, Info
 } from "lucide-react"
-import { mockDashboardStats, mockAiAlerts, mockWeeklyData, mockDealsActivity, mockPipelines } from "@/lib/mock-data"
+import { mockDealsActivity } from "@/lib/mock-data"
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/utils"
 import { useState } from "react"
+import { useAmo } from "@/context/amo-context"
+import { RefreshCw } from "lucide-react"
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
@@ -35,7 +37,12 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 export default function DashboardPage() {
   const [period, setPeriod] = useState("month")
   const [pipeline, setPipeline] = useState("all")
-  const stats = mockDashboardStats
+  const { data, isDemo, isSyncing } = useAmo()
+
+  const stats = data.stats
+  const mockAiAlerts = data.alerts
+  const mockWeeklyData = data.weeklyData
+  const mockPipelines = data.pipelines
 
   const statCards = [
     {
@@ -86,7 +93,10 @@ export default function DashboardPage() {
   }
 
   return (
-    <AppLayout title="Дашборд" subtitle="Сводная аналитика отдела продаж">
+    <AppLayout
+      title="Дашборд"
+      subtitle={isDemo ? "Сводная аналитика · Демо-режим (подключите AmoCRM в Настройках)" : "Сводная аналитика · данные из AmoCRM"}
+    >
       {/* Filters */}
       <div className="mb-6 flex items-center gap-3">
         <Select value={pipeline} onValueChange={setPipeline}>

@@ -12,6 +12,7 @@ import {
   RefreshCw,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useAmo } from "@/context/amo-context"
 
 const navItems = [
   { href: "/dashboard", label: "Дашборд", icon: LayoutDashboard },
@@ -23,6 +24,7 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const { connection, isSyncing } = useAmo()
 
   return (
     <aside className="flex h-screen w-60 flex-col border-r border-slate-700/50 bg-slate-900">
@@ -63,14 +65,26 @@ export function Sidebar() {
       {/* Sync status */}
       <div className="p-3 border-t border-slate-700/50">
         <div className="flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2.5">
-          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/20">
-            <RefreshCw className="h-3 w-3 text-emerald-400" />
+          <div className={cn(
+            "flex h-6 w-6 items-center justify-center rounded-full",
+            connection.connected ? "bg-emerald-500/20" : "bg-slate-700"
+          )}>
+            <RefreshCw className={cn(
+              "h-3 w-3",
+              connection.connected ? "text-emerald-400" : "text-slate-500",
+              isSyncing && "animate-spin"
+            )} />
           </div>
           <div>
             <p className="text-xs font-medium text-slate-300">AmoCRM</p>
-            <p className="text-xs text-slate-500">Демо-режим</p>
+            <p className="text-xs text-slate-500">
+              {isSyncing ? "Синхронизация..." : connection.connected ? connection.domain + ".amocrm.ru" : "Демо-режим"}
+            </p>
           </div>
-          <div className="ml-auto h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          <div className={cn(
+            "ml-auto h-2 w-2 rounded-full",
+            connection.connected ? "bg-emerald-500 animate-pulse" : "bg-slate-600"
+          )} />
         </div>
       </div>
     </aside>

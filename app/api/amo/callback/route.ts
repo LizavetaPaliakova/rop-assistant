@@ -1,54 +1,52 @@
 import { NextRequest, NextResponse } from "next/server"
+import { exchangeCodeForTokens } from "@/lib/amo/client"
+
+const COOKIE_OPTS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  path: "/",
+  sameSite: "lax" as const,
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const code = searchParams.get("code")
-  const referer = searchParams.get("referer") // AmoCRM domain
+  const referer = searchParams.get("referer") // e.g. "mycompany.amocrm.ru"
 
   if (!code || !referer) {
-    return NextResponse.redirect(new URL("/settings?error=no_code", req.url))
+    return NextResponse.redirect(new URL("/settings?error=missing_params", req.url))
   }
 
+  // AmoCRM sends the full domain in referer, e.g. "mycompany.amocrm.ru"
+  const domain = referer.replace(/\.amocrm\.ru$/, "")
+
   try {
-    // Exchange code for tokens
-    const tokenRes = await fetch(`https://${referer}/oauth2/access_token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        client_id: process.env.AMO_CLIENT_ID,
-        client_secret: process.env.AMO_CLIENT_SECRET,
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: process.env.AMO_REDIRECT_URL,
-      }),
-    })
+    const tokens = await exchangeCodeForTokens(referer, code)
 
-    if (!tokenRes.ok) {
-      return NextResponse.redirect(new URL("/settings?error=token_exchange_failed", req.url))
-    }
+    const res = NextResponse.redirect(new URL("/settings?amo_connected=1", req.url))
 
-    const tokens = await tokenRes.json()
-    const domain = referer.replace(".amocrm.ru", "")
-
-    // Redirect to settings with success — in production store tokens in Supabase
-    const redirectUrl = new URL("/settings", req.url)
-    redirectUrl.searchParams.set("amo_connected", "true")
-    redirectUrl.searchParams.set("domain", domain)
-
-    const response = NextResponse.redirect(redirectUrl)
-    response.cookies.set("amo_access_token", tokens.access_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+    // Store tokens in httpOnly cookies
+    res.cookies.set("amo_access_token", tokens.access_token, {
+      ...COOKIE_OPTS,
       maxAge: tokens.expires_in,
     })
-    response.cookies.set("amo_domain", domain, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+    res.cookies.set("amo_refresh_token", tokens.refresh_token, {
+      ...COOKIE_OPTS,
+      maxAge: 60 * 60 * 24 * 90, // 90 days
+    })
+    res.cookies.set("amo_domain", domain, {
+      ...COOKIE_OPTS,
+      maxAge: 60 * 60 * 24 * 90,
+    })
+    res.cookies.set("amo_token_expires", String(Date.now() + tokens.expires_in * 1000), {
+      ...COOKIE_OPTS,
+      maxAge: tokens.expires_in,
     })
 
-    return response
-  } catch (error) {
-    console.error("OAuth callback error:", error)
-    return NextResponse.redirect(new URL("/settings?error=oauth_failed", req.url))
+    return res
+  } catch (err) {
+    console.error("OAuth callback error:", err)
+    const msg = encodeURIComponent((err as Error).message)
+    return NextResponse.redirect(new URL(`/settings?error=oauth_failed&msg=${msg}`, req.url))
   }
 }

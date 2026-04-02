@@ -11,13 +11,14 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { GitBranch, Settings2, TrendingUp, CheckCircle, AlertTriangle } from "lucide-react"
-import { mockPipelines } from "@/lib/mock-data"
+import { useAmo } from "@/context/amo-context"
 import { formatPercent, formatNumber, formatCurrency } from "@/lib/utils"
 import type { Pipeline } from "@/lib/types"
 
 export default function PipelinesPage() {
-  const [pipelines, setPipelines] = useState<Pipeline[]>(mockPipelines)
-  const [selected, setSelected] = useState<Pipeline>(mockPipelines[0])
+  const { data, isDemo } = useAmo()
+  const [pipelines, setPipelines] = useState<Pipeline[]>(data.pipelines)
+  const [selected, setSelected] = useState<Pipeline>(data.pipelines[0])
   const [editTarget, setEditTarget] = useState(false)
   const [targetValue, setTargetValue] = useState(selected.target_conversion.toString())
 
@@ -50,7 +51,7 @@ export default function PipelinesPage() {
   }))
 
   return (
-    <AppLayout title="Воронки продаж" subtitle="Мониторинг и настройка воронок">
+    <AppLayout title="Воронки продаж" subtitle={isDemo ? "Мониторинг и настройка · Демо-данные" : "Мониторинг · данные из AmoCRM"}>
       <div className="grid grid-cols-12 gap-4">
         {/* Left panel — pipeline list */}
         <div className="col-span-3 space-y-2">

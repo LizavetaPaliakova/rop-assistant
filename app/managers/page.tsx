@@ -13,7 +13,7 @@ import {
   Phone, TrendingUp, TrendingDown, AlertTriangle, Star,
   Clock, Target, DollarSign, ChevronRight, User
 } from "lucide-react"
-import { mockManagers } from "@/lib/mock-data"
+import { useAmo } from "@/context/amo-context"
 import { formatCurrency, formatPercent, cn } from "@/lib/utils"
 import type { Manager } from "@/lib/types"
 
@@ -89,7 +89,15 @@ function ManagerCard({ manager, isSelected, onClick }: { manager: Manager; isSel
 }
 
 export default function ManagersPage() {
-  const [selected, setSelected] = useState<Manager>(mockManagers[0])
+  const { data, isDemo } = useAmo()
+  const managers = data.managers
+  const [selected, setSelected] = useState<Manager>(managers[0])
+
+  const teamData = managers.map((m) => ({
+    name: m.name.split(" ")[0],
+    план: Math.round(m.plan_percent),
+    конверсия: m.conversion,
+  }))
 
   const radarData = [
     { subject: "План", value: Math.min(selected.plan_percent, 120) },
@@ -99,25 +107,19 @@ export default function ManagersPage() {
     { subject: "Активность", value: selected.stalled_deals === 0 ? 100 : Math.max(100 - selected.stalled_deals * 15, 10) },
   ]
 
-  const teamData = mockManagers.map((m) => ({
-    name: m.name.split(" ")[0],
-    план: Math.round(m.plan_percent),
-    конверсия: m.conversion,
-  }))
-
   const recommendations = aiRecommendations[selected.id] || []
   const criticalCount = recommendations.filter((r) => r.includes("Критично") || r.includes("срочная") || r.includes("Критично")).length
 
   return (
-    <AppLayout title="Менеджеры" subtitle="Аналитика и рекомендации по каждому сотруднику">
+    <AppLayout title="Менеджеры" subtitle={isDemo ? "Аналитика · Демо-данные" : "Аналитика · данные из AmoCRM"}>
       <div className="grid grid-cols-12 gap-4">
         {/* Left — manager list */}
         <div className="col-span-3 space-y-2">
           <div className="mb-3 flex items-center justify-between px-1">
             <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Менеджеры</p>
-            <Badge variant="secondary">{mockManagers.length}</Badge>
+            <Badge variant="secondary">{managers.length}</Badge>
           </div>
-          {mockManagers.map((m) => (
+          {managers.map((m) => (
             <ManagerCard
               key={m.id}
               manager={m}

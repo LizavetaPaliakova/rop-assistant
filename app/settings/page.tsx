@@ -1,97 +1,152 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { AppLayout } from "@/components/layout/app-layout"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
 import {
   CheckCircle, XCircle, RefreshCw, ExternalLink,
-  Shield, Bot, Zap, AlertTriangle, Copy, Eye, EyeOff
+  Shield, Bot, Zap, AlertTriangle, Eye, EyeOff, Unplug,
 } from "lucide-react"
+import { useAmo } from "@/context/amo-context"
 
-type ConnectionStatus = "connected" | "disconnected" | "testing"
+type TgStatus = "idle" | "testing" | "connected" | "error"
 
-export default function SettingsPage() {
+function SettingsContent() {
+  const { connection, isSyncing, sync, disconnect, refreshConnection } = useAmo()
+  const searchParams = useSearchParams()
+
   // AmoCRM
   const [amoDomain, setAmoDomain] = useState("")
-  const [amoStatus, setAmoStatus] = useState<ConnectionStatus>("disconnected")
   const [amoConnecting, setAmoConnecting] = useState(false)
   const [syncInterval, setSyncInterval] = useState("30")
+  const [amoError, setAmoError] = useState<string | null>(null)
 
   // Telegram
   const [tgToken, setTgToken] = useState("")
   const [tgChatId, setTgChatId] = useState("")
-  const [tgStatus, setTgStatus] = useState<ConnectionStatus>("disconnected")
-  const [tgTesting, setTgTesting] = useState(false)
+  const [tgStatus, setTgStatus] = useState<TgStatus>("idle")
   const [showToken, setShowToken] = useState(false)
 
   // Claude AI
   const [aiKey, setAiKey] = useState("")
   const [showAiKey, setShowAiKey] = useState(false)
+  const [aiSaved, setAiSaved] = useState(false)
 
-  const handleAmoConnect = async () => {
-    if (!amoDomain) return
+  // Read URL params after OAuth redirect
+  useEffect(() => {
+    const connected = searchParams.get("amo_connected")
+    const error = searchParams.get("error")
+    const msg = searchParams.get("msg")
+
+    if (connected === "1") {
+      refreshConnection()
+      // Clean URL
+      window.history.replaceState({}, "", "/settings")
+    }
+    if (error) {
+      const msgs: Record<string, string> = {
+        missing_params: "Не получены параметры авторизации",
+        oauth_failed: msg ? decodeURIComponent(msg) : "Ошибка OAuth авторизации",
+      }
+      setAmoError(msgs[error] || error)
+      window.history.replaceState({}, "", "/settings")
+    }
+  }, [searchParams, refreshConnection])
+
+  const handleAmoConnect = () => {
+    if (!amoDomain.trim()) return
     setAmoConnecting(true)
-    // Redirect to AmoCRM OAuth
-    const domain = amoDomain.replace(".amocrm.ru", "")
-    const clientId = process.env.NEXT_PUBLIC_AMO_CLIENT_ID || "YOUR_CLIENT_ID"
+    setAmoError(null)
+
+    const clientId = process.env.NEXT_PUBLIC_AMO_CLIENT_ID
+    if (!clientId) {
+      setAmoError("NEXT_PUBLIC_AMO_CLIENT_ID не задан в .env.local")
+      setAmoConnecting(false)
+      return
+    }
+
+    const domain = amoDomain.trim().replace(/\.amocrm\.ru$/, "")
     const redirectUri = encodeURIComponent(`${window.location.origin}/api/amo/callback`)
-    const oauthUrl = `https://${domain}.amocrm.ru/oauth?client_id=${clientId}&state=connect&mode=popup&redirect_uri=${redirectUri}`
-    window.open(oauthUrl, "_blank", "width=600,height=700")
-    // Simulate for demo
-    await new Promise((r) => setTimeout(r, 2000))
-    setAmoStatus("connected")
-    setAmoConnecting(false)
+    const state = Math.random().toString(36).slice(2)
+
+    const oauthUrl =
+      `https://${domain}.amocrm.ru/oauth?` +
+      `client_id=${clientId}&` +
+      `state=${state}&` +
+      `mode=popup&` +
+      `redirect_uri=${redirectUri}`
+
+    const popup = window.open(oauthUrl, "amo_oauth", "width=650,height=750,left=200,top=100")
+
+    // Poll for popup close
+    const timer = setInterval(() => {
+      if (!popup || popup.closed) {
+        clearInterval(timer)
+        setAmoConnecting(false)
+        refreshConnection()
+      }
+    }, 800)
   }
 
-  const handleAmoDisconnect = () => {
-    setAmoStatus("disconnected")
-    setAmoDomain("")
+  const handleSync = async () => {
+    await sync()
+  }
+
+  const handleDisconnect = async () => {
+    if (!confirm("Отключить AmoCRM? Данные в приложении останутся в демо-режиме.")) return
+    await disconnect()
   }
 
   const handleTgTest = async () => {
-    if (!tgToken || !tgChatId) return
-    setTgTesting(true)
+    if (!tgToken.trim() || !tgChatId.trim()) return
+    setTgStatus("testing")
     try {
       const res = await fetch("/api/telegram/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: tgToken, chatId: tgChatId }),
       })
-      if (res.ok) {
-        setTgStatus("connected")
-      } else {
-        setTgStatus("disconnected")
-        alert("Ошибка: проверьте токен и Chat ID")
-      }
+      setTgStatus(res.ok ? "connected" : "error")
     } catch {
-      // Demo mode
-      setTgStatus("connected")
+      setTgStatus("error")
     }
-    setTgTesting(false)
   }
 
-  const StatusBadge = ({ status }: { status: ConnectionStatus }) => {
-    if (status === "connected") return (
-      <Badge variant="success" className="gap-1"><CheckCircle className="h-3 w-3" /> Подключено</Badge>
-    )
-    if (status === "testing") return (
-      <Badge variant="warning" className="gap-1"><RefreshCw className="h-3 w-3 animate-spin" /> Проверка...</Badge>
-    )
-    return <Badge variant="secondary" className="gap-1"><XCircle className="h-3 w-3" /> Не подключено</Badge>
+  const handleSaveAiKey = () => {
+    // In production: POST to /api/settings to persist in Supabase
+    localStorage.setItem("anthropic_api_key", aiKey)
+    setAiSaved(true)
+    setTimeout(() => setAiSaved(false), 2000)
   }
+
+  // Load saved AI key
+  useEffect(() => {
+    const saved = localStorage.getItem("anthropic_api_key")
+    if (saved) setAiKey(saved)
+  }, [])
+
+  const StatusBadge = ({ ok }: { ok: boolean }) =>
+    ok ? (
+      <Badge variant="success" className="gap-1">
+        <CheckCircle className="h-3 w-3" /> Подключено
+      </Badge>
+    ) : (
+      <Badge variant="secondary" className="gap-1">
+        <XCircle className="h-3 w-3" /> Не подключено
+      </Badge>
+    )
 
   return (
     <AppLayout title="Настройки" subtitle="Подключение сервисов и конфигурация">
       <div className="max-w-3xl space-y-6">
 
-        {/* AmoCRM */}
+        {/* ── AmoCRM ── */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -101,26 +156,42 @@ export default function SettingsPage() {
                 </div>
                 <div>
                   <CardTitle>AmoCRM</CardTitle>
-                  <CardDescription>Синхронизация сделок и менеджеров</CardDescription>
+                  <CardDescription>OAuth2 интеграция · синхронизация сделок и менеджеров</CardDescription>
                 </div>
               </div>
-              <StatusBadge status={amoStatus} />
+              <StatusBadge ok={connection.connected} />
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            {amoStatus === "disconnected" ? (
+
+            {/* Not connected */}
+            {!connection.connected && (
               <>
-                <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 flex gap-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
-                  <div className="text-xs text-amber-300">
-                    <p className="font-medium mb-1">Как подключить AmoCRM:</p>
-                    <ol className="list-decimal list-inside space-y-0.5 text-amber-400">
-                      <li>Введите ваш поддомен AmoCRM ниже</li>
-                      <li>Нажмите «Подключить» — откроется окно авторизации</li>
-                      <li>Разрешите доступ для ROP Assistant</li>
-                    </ol>
+                {/* Setup instructions */}
+                <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 space-y-2">
+                  <div className="flex gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                    <p className="text-xs font-semibold text-amber-300">Перед подключением создайте интеграцию в AmoCRM</p>
+                  </div>
+                  <ol className="list-decimal list-inside text-xs text-amber-400 space-y-1 pl-6">
+                    <li>Откройте AmoCRM → Настройки → Интеграции → Создать интеграцию</li>
+                    <li>Тип: <b>Внешняя интеграция (OAuth 2.0)</b></li>
+                    <li>Redirect URI: <code className="bg-slate-800 px-1 rounded text-slate-300">{typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/amo/callback</code></li>
+                    <li>Скопируйте <b>Client ID</b> и <b>Client Secret</b> в <code className="bg-slate-800 px-1 rounded text-slate-300">.env.local</code></li>
+                  </ol>
+                  <div className="mt-2 rounded bg-slate-800/80 p-2 font-mono text-xs text-slate-300 select-all">
+                    NEXT_PUBLIC_AMO_CLIENT_ID=ваш_client_id<br />
+                    AMO_CLIENT_SECRET=ваш_secret<br />
+                    AMO_REDIRECT_URL={typeof window !== "undefined" ? window.location.origin : "http://localhost:3000"}/api/amo/callback
                   </div>
                 </div>
+
+                {amoError && (
+                  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-300">
+                    <b>Ошибка:</b> {amoError}
+                  </div>
+                )}
+
                 <div className="space-y-1.5">
                   <Label>Поддомен AmoCRM</Label>
                   <div className="flex gap-2">
@@ -129,54 +200,75 @@ export default function SettingsPage() {
                         placeholder="mycompany"
                         value={amoDomain}
                         onChange={(e) => setAmoDomain(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleAmoConnect()}
                       />
                       <span className="absolute right-3 top-2 text-sm text-slate-500">.amocrm.ru</span>
                     </div>
-                    <Button onClick={handleAmoConnect} disabled={amoConnecting || !amoDomain}>
+                    <Button onClick={handleAmoConnect} disabled={amoConnecting || !amoDomain.trim()}>
                       <ExternalLink className="h-4 w-4" />
-                      {amoConnecting ? "Подключение..." : "Подключить"}
+                      {amoConnecting ? "Ожидание..." : "Подключить"}
                     </Button>
                   </div>
+                  <p className="text-xs text-slate-500">
+                    Откроется окно авторизации AmoCRM — разрешите доступ для приложения
+                  </p>
                 </div>
               </>
-            ) : (
+            )}
+
+            {/* Connected */}
+            {connection.connected && (
               <>
                 <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4">
-                  <div className="flex items-center gap-3">
-                    <CheckCircle className="h-5 w-5 text-emerald-400" />
-                    <div>
-                      <p className="text-sm font-medium text-emerald-300">AmoCRM подключён</p>
-                      <p className="text-xs text-slate-500 mt-0.5">Последняя синхронизация: 5 минут назад · 127 сделок · 5 менеджеров</p>
+                  <div className="flex items-start gap-3">
+                    <CheckCircle className="h-5 w-5 text-emerald-400 shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-emerald-300">
+                        AmoCRM подключён · {connection.domain}.amocrm.ru
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-3 text-xs text-slate-400">
+                        {connection.lastSyncAt && (
+                          <span>Последняя синхр.: {new Date(connection.lastSyncAt).toLocaleTimeString("ru-RU")}</span>
+                        )}
+                        {connection.leadsCount > 0 && <span>{connection.leadsCount} сделок</span>}
+                        {connection.managersCount > 0 && <span>{connection.managersCount} менеджеров</span>}
+                      </div>
                     </div>
-                    <Button size="sm" variant="ghost" className="ml-auto" onClick={handleAmoDisconnect}>
+                    <Button size="sm" variant="ghost" className="text-slate-400 hover:text-red-400 shrink-0" onClick={handleDisconnect}>
+                      <Unplug className="h-3.5 w-3.5" />
                       Отключить
                     </Button>
                   </div>
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Частота синхронизации</Label>
-                  <Select value={syncInterval} onValueChange={setSyncInterval}>
-                    <SelectTrigger className="w-52">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="5">Каждые 5 минут</SelectItem>
-                      <SelectItem value="15">Каждые 15 минут</SelectItem>
-                      <SelectItem value="30">Каждые 30 минут</SelectItem>
-                      <SelectItem value="60">Каждый час</SelectItem>
-                    </SelectContent>
-                  </Select>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 max-w-[200px] space-y-1.5">
+                    <Label>Частота синхронизации</Label>
+                    <Select value={syncInterval} onValueChange={setSyncInterval}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5">Каждые 5 минут</SelectItem>
+                        <SelectItem value="15">Каждые 15 минут</SelectItem>
+                        <SelectItem value="30">Каждые 30 минут</SelectItem>
+                        <SelectItem value="60">Каждый час</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="pt-6">
+                    <Button variant="outline" size="sm" onClick={handleSync} disabled={isSyncing}>
+                      <RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} />
+                      {isSyncing ? "Синхронизация..." : "Синхронизировать сейчас"}
+                    </Button>
+                  </div>
                 </div>
-                <Button size="sm" variant="outline">
-                  <RefreshCw className="h-4 w-4" />
-                  Синхронизировать сейчас
-                </Button>
               </>
             )}
           </CardContent>
         </Card>
 
-        {/* Telegram */}
+        {/* ── Telegram ── */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
@@ -189,17 +281,17 @@ export default function SettingsPage() {
                   <CardDescription>Отправка отчётов и уведомлений</CardDescription>
                 </div>
               </div>
-              <StatusBadge status={tgStatus} />
+              <StatusBadge ok={tgStatus === "connected"} />
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-3 text-xs text-slate-400">
-              <p className="font-medium text-slate-300 mb-1">Как создать бота:</p>
-              <ol className="list-decimal list-inside space-y-0.5">
-                <li>Откройте @BotFather в Telegram</li>
-                <li>Напишите /newbot и следуйте инструкциям</li>
-                <li>Скопируйте полученный токен сюда</li>
-                <li>Добавьте бота в нужный чат и получите Chat ID через @userinfobot</li>
+              <p className="font-medium text-slate-300 mb-1.5">Как создать бота:</p>
+              <ol className="list-decimal list-inside space-y-1">
+                <li>Откройте <b className="text-slate-300">@BotFather</b> в Telegram → /newbot</li>
+                <li>Скопируйте токен и вставьте ниже</li>
+                <li>Добавьте бота в нужный чат</li>
+                <li>Узнайте Chat ID через <b className="text-slate-300">@userinfobot</b> или <b className="text-slate-300">@getmyid_bot</b></li>
               </ol>
             </div>
 
@@ -213,80 +305,75 @@ export default function SettingsPage() {
                     value={tgToken}
                     onChange={(e) => setTgToken(e.target.value)}
                   />
-                  <button
-                    className="absolute right-3 top-2 text-slate-500 hover:text-slate-300"
-                    onClick={() => setShowToken(!showToken)}
-                  >
+                  <button className="absolute right-3 top-2 text-slate-500 hover:text-slate-300" onClick={() => setShowToken(!showToken)}>
                     {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
               <div className="space-y-1.5">
                 <Label>Chat ID</Label>
-                <Input
-                  placeholder="-100xxxxxxxxx"
-                  value={tgChatId}
-                  onChange={(e) => setTgChatId(e.target.value)}
-                />
+                <Input placeholder="-100xxxxxxxxx" value={tgChatId} onChange={(e) => setTgChatId(e.target.value)} />
               </div>
             </div>
 
             <div className="flex gap-2">
-              <Button onClick={handleTgTest} disabled={tgTesting || !tgToken || !tgChatId}>
-                {tgTesting ? (
-                  <><RefreshCw className="h-4 w-4 animate-spin" /> Проверка...</>
-                ) : (
-                  <><Shield className="h-4 w-4" /> Тест отправки</>
-                )}
+              <Button onClick={handleTgTest} disabled={tgStatus === "testing" || !tgToken || !tgChatId}>
+                {tgStatus === "testing"
+                  ? <><RefreshCw className="h-4 w-4 animate-spin" /> Проверка...</>
+                  : <><Shield className="h-4 w-4" /> Тест отправки</>}
               </Button>
+              {tgStatus === "error" && (
+                <span className="flex items-center gap-1 text-xs text-red-400">
+                  <XCircle className="h-3.5 w-3.5" /> Ошибка — проверьте токен и Chat ID
+                </span>
+              )}
               {tgStatus === "connected" && (
-                <Button variant="secondary">
-                  Сохранить настройки
-                </Button>
+                <span className="flex items-center gap-1 text-xs text-emerald-400">
+                  <CheckCircle className="h-3.5 w-3.5" /> Сообщение отправлено успешно!
+                </span>
               )}
             </div>
           </CardContent>
         </Card>
 
-        {/* Claude AI */}
+        {/* ── Claude AI ── */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/15">
-                <span className="text-lg">🤖</span>
-              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/15 text-lg">🤖</div>
               <div>
                 <CardTitle>Claude AI</CardTitle>
-                <CardDescription>AI-анализ и рекомендации для РОПа</CardDescription>
+                <CardDescription>AI-анализ и рекомендации по команде</CardDescription>
               </div>
             </div>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3">
             <div className="space-y-1.5">
               <Label>Anthropic API Key</Label>
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <Input
                     type={showAiKey ? "text" : "password"}
-                    placeholder="sk-ant-..."
+                    placeholder="sk-ant-api03-..."
                     value={aiKey}
                     onChange={(e) => setAiKey(e.target.value)}
                   />
-                  <button
-                    className="absolute right-3 top-2 text-slate-500 hover:text-slate-300"
-                    onClick={() => setShowAiKey(!showAiKey)}
-                  >
+                  <button className="absolute right-3 top-2 text-slate-500 hover:text-slate-300" onClick={() => setShowAiKey(!showAiKey)}>
                     {showAiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                <Button variant="outline" disabled={!aiKey}>Сохранить</Button>
+                <Button variant="outline" onClick={handleSaveAiKey} disabled={!aiKey}>
+                  {aiSaved ? <><CheckCircle className="h-4 w-4 text-emerald-400" /> Сохранено</> : "Сохранить"}
+                </Button>
               </div>
-              <p className="text-xs text-slate-500">Получить ключ: console.anthropic.com</p>
+              <p className="text-xs text-slate-500">
+                Получить ключ: <b>console.anthropic.com</b> → API Keys
+              </p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Danger zone */}
+        {/* ── Danger zone ── */}
         <Card className="border-red-500/20">
           <CardHeader>
             <CardTitle className="text-sm text-red-400">Опасная зона</CardTitle>
@@ -294,21 +381,25 @@ export default function SettingsPage() {
           <CardContent>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-300">Сбросить все данные</p>
-                <p className="text-xs text-slate-500">Удалить все синхронизированные данные и настройки</p>
+                <p className="text-sm text-slate-300">Сбросить подключение</p>
+                <p className="text-xs text-slate-500">Удалить токены AmoCRM и вернуться в демо-режим</p>
               </div>
-              <Button variant="destructive" size="sm" onClick={() => {
-                if (confirm("Вы уверены? Все данные будут удалены.")) {
-                  setAmoStatus("disconnected")
-                  setTgStatus("disconnected")
-                }
-              }}>
+              <Button variant="destructive" size="sm" onClick={handleDisconnect}>
                 Сбросить
               </Button>
             </div>
           </CardContent>
         </Card>
+
       </div>
     </AppLayout>
+  )
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SettingsContent />
+    </Suspense>
   )
 }
