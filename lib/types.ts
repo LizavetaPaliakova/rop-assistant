@@ -5,6 +5,8 @@ export interface Manager {
   email?: string
   is_tracked: boolean
   deals_count: number
+  hot_leads: number
+  warm_leads: number
   revenue: number
   plan: number
   plan_percent: number

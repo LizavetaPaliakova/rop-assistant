@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import {
-  fetchPipelines, fetchLeads, fetchWonLeads, fetchUsers, fetchCallEvents, refreshAccessToken,
+  fetchPipelines, fetchLeads, fetchUsers, fetchCallEvents, refreshAccessToken,
 } from "@/lib/amo/client"
 import {
   transformPipelines, transformManagers, calcDashboardStats,
@@ -50,10 +50,10 @@ export async function POST(req: NextRequest) {
 
     const safe = <T>(p: Promise<T>, fallback: T) => p.catch((e) => { console.warn("AMO fetch warn:", e?.message); return fallback })
 
-    const [amoPipelines, amoLeads, amoWonLeads, amoUsers, amoEvents] = await Promise.all([
+    // Single leads fetch with custom fields — used for both open lead counts and payment analysis
+    const [amoPipelines, amoLeads, amoUsers, amoEvents] = await Promise.all([
       safe(fetchPipelines(domain, token), []),
       safe(fetchLeads(domain, token, pipelineIds), []),
-      safe(fetchWonLeads(domain, token, settings.paymentStatusIds, pipelineIds), []),
       safe(fetchUsers(domain, token), []),
       safe(fetchCallEvents(domain, token, 30), []),
     ])
@@ -62,18 +62,17 @@ export async function POST(req: NextRequest) {
       ? amoPipelines.filter(p => settings.selectedPipelineIds.includes(p.id))
       : amoPipelines
 
-    const pipelines = transformPipelines(filteredPipelines, amoLeads, amoWonLeads, settings)
-    const managers = transformManagers(amoUsers, amoLeads, amoWonLeads, amoEvents, settings)
-    const stats = calcDashboardStats(amoLeads, amoWonLeads, settings)
+    const pipelines = transformPipelines(filteredPipelines, amoLeads, settings)
+    const managers = transformManagers(amoUsers, amoLeads, amoEvents, settings)
+    const stats = calcDashboardStats(amoLeads, settings)
     const alerts = generateAlerts(managers, amoLeads)
-    const weeklyData = buildWeeklyData(amoLeads, amoWonLeads, amoEvents)
+    const weeklyData = buildWeeklyData(amoLeads, amoEvents)
 
     const result = NextResponse.json({
       success: true,
       stats: {
         pipelines: amoPipelines.length,
         leads: amoLeads.length,
-        wonLeads: amoWonLeads.length,
         managers: amoUsers.length,
       },
       data: {

@@ -4,14 +4,29 @@
 export const AMO_API = (domain: string) => `https://${domain}.amocrm.ru/api/v4`
 export const AMO_OAUTH = (domain: string) => `https://${domain}.amocrm.ru/oauth2/access_token`
 
+// ─── Known AMO constants ──────────────────────────────────────────────────────
+
+export const AMO_PIPELINE_II = 9688350          // "ИИ" — hot leads
+export const AMO_PIPELINE_EVENTS = 9688342      // "Мероприятия онлайн" — warm leads
+export const AMO_FIELD_PAYMENT_DATE = 295533    // "Дата последней оплаты" — unix timestamp
+export const AMO_FIELD_APPLICATION_DATE = 379811 // "Даты заявки"
+export const AMO_EXCLUDED_MANAGER_IDS = new Set([
+  13305102, // Аккаунт общий
+  297540,   // Стаc Банников
+  2498311,  // Василенко
+  13083377, // Алексеев Дмитрий
+  9280741,  // Полякова Елизавета
+  10447070, // Данил Хайритдинов
+])
+
+// ─── Raw AmoCRM types ─────────────────────────────────────────────────────────
+
 export interface AmoTokens {
   access_token: string
   refresh_token: string
   expires_in: number
   token_type: string
 }
-
-// ─── Raw AmoCRM types ─────────────────────────────────────────────────────────
 
 export interface AmoPipeline {
   id: number
@@ -31,6 +46,13 @@ export interface AmoStatus {
   type: number // 0=normal, 142=won, 143=lost
 }
 
+export interface AmoCustomFieldValue {
+  field_id: number
+  field_name: string
+  field_type: string
+  values: Array<{ value: string | number }>
+}
+
 export interface AmoLead {
   id: number
   name: string
@@ -42,7 +64,7 @@ export interface AmoLead {
   updated_at: number   // unix
   closed_at: number | null
   loss_reason_id: number | null
-  custom_fields_values: unknown[] | null
+  custom_fields_values: AmoCustomFieldValue[] | null
   _embedded?: {
     contacts?: Array<{ id: number; name: string }>
   }
@@ -70,6 +92,18 @@ export interface AmoEvent {
   value_before?: unknown[]
   value_after?: unknown[]
   created_by: number
+}
+
+// ─── Custom field helper ──────────────────────────────────────────────────────
+
+/** Extract a date custom field value (unix timestamp) from a lead */
+export function getCustomFieldDate(lead: AmoLead, fieldId: number): number | null {
+  const field = lead.custom_fields_values?.find(f => f.field_id === fieldId)
+  if (!field || !field.values?.[0]) return null
+  const val = field.values[0].value
+  // Date field values in AMO are unix timestamps (as number or string)
+  const ts = typeof val === 'number' ? val : parseInt(String(val), 10)
+  return isNaN(ts) ? null : ts
 }
 
 // ─── Paginated fetch helper ────────────────────────────────────────────────────
@@ -146,7 +180,7 @@ export async function fetchPipelines(domain: string, token: string): Promise<Amo
 
 const JAN_2026 = Math.floor(new Date("2026-01-01T00:00:00Z").getTime() / 1000)
 
-// Fetch open (active) leads
+// Fetch leads with custom fields (for open lead counts and payment date analysis)
 export async function fetchLeads(
   domain: string,
   token: string,
@@ -154,6 +188,7 @@ export async function fetchLeads(
 ): Promise<AmoLead[]> {
   const params: Record<string, string> = {
     "filter[created_at][from]": String(JAN_2026),
+    "with": "custom_fields",
     order: "updated_at",
   }
   pipelineIds.forEach((id, i) => {
@@ -162,39 +197,44 @@ export async function fetchLeads(
   return amoGetAll<AmoLead>(domain, token, "/leads", "leads", params, 4)
 }
 
-/** Returns [] if no payment statuses configured */
+/** Fetches leads from Jan 2026 with custom fields for payment date analysis */
+export async function fetchPaymentLeads(
+  domain: string,
+  token: string,
+  pipelineIds: number[] = []
+): Promise<AmoLead[]> {
+  // Fetch all leads with custom fields — we filter by FIELD_PAYMENT_DATE in transforms
+  const params: Record<string, string> = {
+    "filter[created_at][from]": String(JAN_2026),
+    "with": "custom_fields",
+    order: "updated_at",
+  }
+  pipelineIds.forEach((id, i) => {
+    params[`filter[pipeline_id][${i}]`] = String(id)
+  })
+  return amoGetAll<AmoLead>(domain, token, "/leads", "leads", params, 4)
+}
+
+/** @deprecated Use fetchPaymentLeads instead */
 export async function fetchWonLeads(
   domain: string,
   token: string,
   paymentStatusIds: number[],
   pipelineIds: number[] = []
 ): Promise<AmoLead[]> {
-  if (paymentStatusIds.length === 0) return []
-  const statusIds = paymentStatusIds
-  try {
-    const results: AmoLead[] = []
-    for (let si = 0; si < statusIds.length; si++) {
-      const params: Record<string, string> = {
-        "filter[created_at][from]": String(JAN_2026),
-        [`filter[statuses][${si}][status_id]`]: String(statusIds[si]),
-        order: "updated_at",
-      }
-      pipelineIds.forEach((id, i) => { params[`filter[pipeline_id][${i}]`] = String(id) })
-      const batch = await amoGetAll<AmoLead>(domain, token, "/leads", "leads", params, 4)
-      results.push(...batch)
-    }
-    return [...new Map(results.map(l => [l.id, l])).values()]
-  } catch { return [] }
+  return fetchPaymentLeads(domain, token, pipelineIds)
 }
 
-// Fetch all users and filter to active only (rights.is_active !== false)
+// Fetch all users and filter to active only, excluding non-real manager accounts
 export async function fetchUsers(domain: string, token: string): Promise<AmoUser[]> {
   const data = await amoGet<{ _embedded?: { users: AmoUser[] } }>(
     domain, token, "/users", { limit: "100", with: "role,group,rights" }
   )
   const all = data._embedded?.users || []
-  // Exclude fired/deactivated employees
-  return all.filter((u) => u.rights?.is_active !== false)
+  return all.filter((u) =>
+    u.rights?.is_active !== false &&
+    !AMO_EXCLUDED_MANAGER_IDS.has(u.id)
+  )
 }
 
 // Fetch all users without filter (for the manager settings UI)

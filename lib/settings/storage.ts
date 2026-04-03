@@ -2,16 +2,12 @@ import { Redis } from "@upstash/redis"
 
 export interface UserSettings {
   selectedPipelineIds: number[]
-  paymentStatusIds: number[]
-  activeStatusIds: number[]
   monthlyPlan: number
   managerPlans: Record<string, number>
 }
 
 const DEFAULT_SETTINGS: UserSettings = {
   selectedPipelineIds: [],
-  paymentStatusIds: [],
-  activeStatusIds: [],
   monthlyPlan: 0,
   managerPlans: {},
 }
@@ -30,7 +26,12 @@ export async function loadSettings(): Promise<UserSettings> {
   if (redis) {
     try {
       const raw = await redis.get<string>(REDIS_KEY)
-      if (raw) return { ...DEFAULT_SETTINGS, ...(typeof raw === "string" ? JSON.parse(raw) : raw) }
+      if (raw) {
+        const parsed = typeof raw === "string" ? JSON.parse(raw) : raw
+        // Strip legacy fields that were removed
+        const { paymentStatusIds: _p, activeStatusIds: _a, ...rest } = parsed as Record<string, unknown>
+        return { ...DEFAULT_SETTINGS, ...rest }
+      }
     } catch {}
   }
   return { ...DEFAULT_SETTINGS }

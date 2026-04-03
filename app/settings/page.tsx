@@ -23,8 +23,6 @@ type AmoConnectMode = "token" | "oauth"
 
 const DEFAULT_SETTINGS: UserSettings = {
   selectedPipelineIds: [],
-  paymentStatusIds: [],
-  activeStatusIds: [],
   monthlyPlan: 0,
   managerPlans: {},
 }
@@ -92,28 +90,6 @@ function SettingsContent() {
       return { ...prev, selectedPipelineIds: ids }
     })
   }
-
-  const togglePaymentStatus = (id: number) => {
-    setAppSettings((prev) => {
-      const ids = prev.paymentStatusIds.includes(id)
-        ? prev.paymentStatusIds.filter((x) => x !== id)
-        : [...prev.paymentStatusIds, id]
-      return { ...prev, paymentStatusIds: ids }
-    })
-  }
-
-  const toggleActiveStatus = (id: number) => {
-    setAppSettings((prev) => {
-      const ids = prev.activeStatusIds.includes(id)
-        ? prev.activeStatusIds.filter((x) => x !== id)
-        : [...prev.activeStatusIds, id]
-      return { ...prev, activeStatusIds: ids }
-    })
-  }
-
-  const relevantPipelines = appSettings.selectedPipelineIds.length > 0
-    ? data.pipelines.filter((p) => appSettings.selectedPipelineIds.includes(p.amo_id))
-    : data.pipelines
 
   useEffect(() => {
     const connected = searchParams.get("amo_connected")
@@ -441,104 +417,7 @@ function SettingsContent() {
               </CardContent>
             </Card>
 
-            {/* Section B: Статусы оплаты */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/15 text-lg">
-                    <span className="text-emerald-400 font-bold text-sm">₽</span>
-                  </div>
-                  <div>
-                    <CardTitle>Статусы оплаты</CardTitle>
-                    <CardDescription>Сделки в этих статусах считаются оплатой и включаются в выручку</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {relevantPipelines.map((pipeline) => (
-                  <div key={pipeline.id} className="space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{pipeline.name}</p>
-                    <div className="space-y-1">
-                      {pipeline.stages.map((stage) => (
-                        <div
-                          key={stage.id}
-                          className={cn(
-                            "flex items-center justify-between rounded-lg px-3 py-2 transition-colors",
-                            appSettings.paymentStatusIds.includes(stage.amo_id)
-                              ? "bg-emerald-500/10"
-                              : "bg-slate-900/40 opacity-60"
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="h-2.5 w-2.5 rounded-full shrink-0"
-                              style={{ backgroundColor: stage.color || "#64748b" }}
-                            />
-                            <span className="text-sm text-slate-200">{stage.name}</span>
-                          </div>
-                          <Switch
-                            checked={appSettings.paymentStatusIds.includes(stage.amo_id)}
-                            onCheckedChange={() => togglePaymentStatus(stage.amo_id)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-
-            {/* Section C: Активные сделки */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/15 text-lg">
-                    <span className="text-amber-400 font-bold text-sm">A</span>
-                  </div>
-                  <div>
-                    <CardTitle>Активные сделки</CardTitle>
-                    <CardDescription>Сделки в этих статусах отображаются как активные</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {relevantPipelines.map((pipeline) => (
-                  <div key={pipeline.id} className="space-y-2">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">{pipeline.name}</p>
-                    <div className="space-y-1">
-                      {pipeline.stages.filter((s) => s.type !== 143).map((stage) => (
-                        <div
-                          key={stage.id}
-                          className={cn(
-                            "flex items-center justify-between rounded-lg px-3 py-2 transition-colors",
-                            appSettings.activeStatusIds.includes(stage.amo_id)
-                              ? "bg-amber-500/10"
-                              : "bg-slate-900/40 opacity-60"
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span
-                              className="h-2.5 w-2.5 rounded-full shrink-0"
-                              style={{ backgroundColor: stage.color || "#64748b" }}
-                            />
-                            <span className="text-sm text-slate-200">{stage.name}</span>
-                          </div>
-                          <Switch
-                            checked={appSettings.activeStatusIds.includes(stage.amo_id)}
-                            onCheckedChange={() => toggleActiveStatus(stage.amo_id)}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                <p className="text-xs text-slate-500 pt-1">
-                  Если ничего не выбрано — все незакрытые сделки считаются активными
-                </p>
-              </CardContent>
-            </Card>
-
-            {/* Section D: План на месяц */}
+            {/* Section B: План на месяц */}
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-3">
@@ -561,7 +440,7 @@ function SettingsContent() {
                       onChange={(e) => setMonthlyPlanInput(e.target.value)}
                       className="pr-8"
                     />
-                    <span className="absolute right-3 top-2 text-sm text-slate-500">₽</span>
+                    <span className="absolute right-3 top-2 text-sm text-slate-500">&#8381;</span>
                   </div>
                 </div>
               </CardContent>

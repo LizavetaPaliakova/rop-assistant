@@ -7,10 +7,11 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Input } from "@/components/ui/input"
-import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts"
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import {
-  Phone, TrendingUp, TrendingDown, AlertTriangle, Star,
-  Clock, Target, DollarSign, ChevronRight, Eye, EyeOff, Settings2, ShoppingCart,
+  Phone, TrendingUp, AlertTriangle, Star,
+  Clock, Target, DollarSign, Eye, EyeOff, Settings2, ShoppingCart,
+  Flame, Thermometer,
 } from "lucide-react"
 import { useAmo } from "@/context/amo-context"
 import { formatCurrency, formatPercent, cn } from "@/lib/utils"
@@ -19,8 +20,6 @@ import type { UserSettings } from "@/lib/settings/storage"
 
 const DEFAULT_SETTINGS: UserSettings = {
   selectedPipelineIds: [],
-  paymentStatusIds: [],
-  activeStatusIds: [],
   monthlyPlan: 0,
   managerPlans: {},
 }
@@ -93,7 +92,12 @@ function ManagerCard({
       {!isHidden && (
         <>
           <div className="space-y-0.5 text-xs text-slate-400">
-            <p>Сделок: <span className="text-slate-200 font-medium">{manager.deals_count}</span></p>
+            <p>
+              <span className="text-orange-400">&#128293;</span> Горячих: <span className="text-slate-200 font-medium">{manager.hot_leads}</span>
+              {"  "}
+              <span className="text-sky-400">&#127777;</span> Тёплых: <span className="text-slate-200 font-medium">{manager.warm_leads}</span>
+            </p>
+            <p>Сделок всего: <span className="text-slate-200 font-medium">{manager.deals_count}</span></p>
             <p>Продаж в этом месяце: <span className="text-slate-200 font-medium">{manager.sales_this_month}</span></p>
             <p>Выручка: <span className="text-emerald-400 font-medium">{formatCurrency(manager.revenue)}</span></p>
           </div>
@@ -174,18 +178,18 @@ export default function ManagersPage() {
 
   if (!sel) return null
 
-  const teamData = managers.map((m) => ({
+  const teamAvgRevenue = managers.length > 0
+    ? managers.reduce((s, m) => s + m.revenue, 0) / managers.length
+    : 0
+
+  const teamComparisonData = [
+    { name: sel.name.split(" ")[0], value: sel.revenue, avg: Math.round(teamAvgRevenue) },
+  ]
+
+  const teamPlanData = managers.map((m) => ({
     name: m.name.split(" ")[0],
     план: Math.round(m.plan_percent),
   }))
-
-  const radarData = [
-    { subject: "План", value: Math.min(sel.plan_percent, 120) },
-    { subject: "Конверсия", value: (sel.conversion / 30) * 100 },
-    { subject: "Звонки", value: Math.min((sel.calls_count / 120) * 100, 100) },
-    { subject: "Скорость", value: Math.max(100 - sel.avg_deal_days * 2, 10) },
-    { subject: "Активность", value: sel.stalled_deals === 0 ? 100 : Math.max(100 - sel.stalled_deals * 15, 10) },
-  ]
 
   return (
     <AppLayout title="Менеджеры" subtitle={isDemo ? "Аналитика · Демо-данные" : "Аналитика · данные из AmoCRM"}>
@@ -270,10 +274,34 @@ export default function ManagersPage() {
           {/* KPI row */}
           <div className="grid grid-cols-4 gap-3">
             {[
-              { label: "Сделок", value: sel.deals_count, icon: Target, color: "text-blue-400", bg: "bg-blue-500/10" },
+              { label: "Горячих лидов", value: sel.hot_leads, icon: Flame, color: "text-orange-400", bg: "bg-orange-500/10" },
+              { label: "Тёплых лидов", value: sel.warm_leads, icon: Thermometer, color: "text-sky-400", bg: "bg-sky-500/10" },
+              { label: "Сделок всего", value: sel.deals_count, icon: Target, color: "text-blue-400", bg: "bg-blue-500/10" },
               { label: "Продаж в месяце", value: sel.sales_this_month, icon: ShoppingCart, color: "text-emerald-400", bg: "bg-emerald-500/10" },
-              { label: "Конверсия", value: formatPercent(sel.conversion), icon: TrendingUp, color: "text-violet-400", bg: "bg-violet-500/10" },
+            ].map((kpi) => {
+              const Icon = kpi.icon
+              return (
+                <Card key={kpi.label}>
+                  <CardContent className="p-4 flex items-center gap-3">
+                    <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${kpi.bg}`}>
+                      <Icon className={`h-4 w-4 ${kpi.color}`} />
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">{kpi.label}</p>
+                      <p className="text-base font-bold text-slate-100">{kpi.value}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+
+          {/* Secondary KPI row */}
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "Выручка", value: formatCurrency(sel.revenue), icon: DollarSign, color: "text-emerald-400", bg: "bg-emerald-500/10" },
               { label: "Ср. дней на сделку", value: sel.avg_deal_days, icon: Clock, color: "text-amber-400", bg: "bg-amber-500/10" },
+              { label: "Звонков (30 дн.)", value: sel.calls_count, icon: Phone, color: "text-violet-400", bg: "bg-violet-500/10" },
             ].map((kpi) => {
               const Icon = kpi.icon
               return (
@@ -307,7 +335,7 @@ export default function ManagersPage() {
                     onChange={(e) => setPlanInputs((prev) => ({ ...prev, [sel.id]: e.target.value }))}
                     className="pr-8"
                   />
-                  <span className="absolute right-3 top-2 text-sm text-slate-500">₽</span>
+                  <span className="absolute right-3 top-2 text-sm text-slate-500">&#8381;</span>
                 </div>
                 <Button
                   size="sm"
@@ -320,46 +348,28 @@ export default function ManagersPage() {
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-2 gap-4">
-            {/* Radar chart */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Профиль менеджера</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={200}>
-                  <RadarChart data={radarData}>
-                    <PolarGrid stroke="#1e293b" />
-                    <PolarAngleAxis dataKey="subject" tick={{ fill: "#64748b", fontSize: 11 }} />
-                    <Radar name={sel.name} dataKey="value" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.25} strokeWidth={2} />
-                  </RadarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            {/* Team comparison */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">Сравнение команды — % выполнения плана</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={teamData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="name" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} unit="%" />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px", fontSize: "12px" }}
-                      formatter={(v) => [`${v}%`, "% плана"]}
-                    />
-                    <Bar dataKey="план" fill="#3b82f6" radius={[4, 4, 0, 0]}
-                      label={{ position: "top", fill: "#64748b", fontSize: 10, formatter: (v: unknown) => `${v}%` }}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </div>
+          {/* Team comparison chart */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Сравнение команды — % выполнения плана</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={teamPlanData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="name" tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: "#64748b", fontSize: 11 }} axisLine={false} tickLine={false} unit="%" />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: "#1e293b", border: "1px solid #334155", borderRadius: "8px", fontSize: "12px" }}
+                    formatter={(v) => [`${v}%`, "% плана"]}
+                  />
+                  <Bar dataKey="план" fill="#3b82f6" radius={[4, 4, 0, 0]}
+                    label={{ position: "top", fill: "#64748b", fontSize: 10, formatter: (v: unknown) => `${v}%` }}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </AppLayout>

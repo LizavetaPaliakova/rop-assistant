@@ -1,4 +1,11 @@
 import type { AmoPipeline, AmoLead, AmoUser, AmoEvent } from "./client"
+import {
+  getCustomFieldDate,
+  AMO_FIELD_PAYMENT_DATE,
+  AMO_FIELD_APPLICATION_DATE,
+  AMO_PIPELINE_II,
+  AMO_PIPELINE_EVENTS,
+} from "./client"
 import type { Pipeline, Manager, DashboardStats, AiAlert } from "@/lib/types"
 import type { UserSettings } from "@/lib/settings/storage"
 
@@ -14,42 +21,53 @@ function startOfPrevMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth() - 1, 1)
 }
 
+function endOfPrevMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
+/** Returns unix timestamp of payment date field (295533), or null */
+function getPaymentDate(lead: AmoLead): number | null {
+  return getCustomFieldDate(lead, AMO_FIELD_PAYMENT_DATE)
+}
+
+/** Returns unix timestamp of application date field (379811), or null */
+function getApplicationDate(lead: AmoLead): number | null {
+  return getCustomFieldDate(lead, AMO_FIELD_APPLICATION_DATE)
+}
+
 // ─── Pipelines ────────────────────────────────────────────────────────────────
 
 export function transformPipelines(
   amoPipelines: AmoPipeline[],
-  openLeads: AmoLead[],
-  paymentLeads: AmoLead[],
+  allLeads: AmoLead[],
   settings: UserSettings
 ): Pipeline[] {
   const now = new Date()
   const monthStart = Math.floor(startOfMonth(now).getTime() / 1000)
 
   return amoPipelines.map((p) => {
-    const pipelineOpenLeads = openLeads.filter((l) => l.pipeline_id === p.id)
-    const pipelinePaymentLeads = paymentLeads.filter((l) => l.pipeline_id === p.id)
+    const pipelineLeads = allLeads.filter((l) => l.pipeline_id === p.id)
+    const openLeads = pipelineLeads.filter(
+      (l) => l.status_id !== AMO_WON_STATUS && l.status_id !== AMO_LOST_STATUS
+    )
 
-    const createdThisMonth = openLeads.filter(
-      (l) => l.pipeline_id === p.id && l.created_at >= monthStart
+    const createdThisMonth = pipelineLeads.filter(
+      (l) => l.created_at >= monthStart
     ).length
 
-    const salesThisMonth = pipelinePaymentLeads.filter((l) => {
-      const t = l.closed_at || 0
-      return t >= monthStart
-    }).length
+    const salesThisMonthLeads = pipelineLeads.filter((l) => {
+      const pd = getPaymentDate(l)
+      return pd !== null && pd >= monthStart && (l.price || 0) > 0
+    })
 
-    const revenueThisMonth = pipelinePaymentLeads
-      .filter((l) => {
-        const t = l.closed_at || 0
-        return t >= monthStart
-      })
-      .reduce((s, l) => s + (l.price || 0), 0)
+    const salesThisMonth = salesThisMonthLeads.length
+    const revenueThisMonth = salesThisMonthLeads.reduce((s, l) => s + (l.price || 0), 0)
 
     const stages = (p._embedded?.statuses || [])
       .filter((s) => s.type !== AMO_LOST_STATUS)
       .sort((a, b) => a.sort - b.sort)
       .map((s) => {
-        const stageLeads = pipelineOpenLeads.filter((l) => l.status_id === s.id)
+        const stageLeads = openLeads.filter((l) => l.status_id === s.id)
         return {
           id: String(s.id),
           amo_id: s.id,
@@ -79,8 +97,7 @@ export function transformPipelines(
 
 export function transformManagers(
   amoUsers: AmoUser[],
-  openLeads: AmoLead[],
-  paymentLeads: AmoLead[],
+  allLeads: AmoLead[],
   events: AmoEvent[],
   settings: UserSettings
 ): Manager[] {
@@ -91,26 +108,31 @@ export function transformManagers(
   const stallThreshold = nowSec - STALL_DAYS * 86400
 
   return amoUsers.map((user) => {
-    const userOpenLeads = openLeads.filter((l) => l.responsible_user_id === user.id)
-    const userPaymentLeads = paymentLeads.filter((l) => l.responsible_user_id === user.id)
+    const userLeads = allLeads.filter((l) => l.responsible_user_id === user.id)
 
-    // deals_count: leads in activeStatusIds if set, else all non-won/non-lost
-    const activeLeads = settings.activeStatusIds.length > 0
-      ? userOpenLeads.filter((l) => settings.activeStatusIds.includes(l.status_id))
-      : userOpenLeads.filter((l) => l.status_id !== AMO_WON_STATUS && l.status_id !== AMO_LOST_STATUS)
+    // Open (active) leads: all non-won/non-lost across all pipelines
+    const openLeads = userLeads.filter(
+      (l) => l.status_id !== AMO_WON_STATUS && l.status_id !== AMO_LOST_STATUS
+    )
 
-    // sales_this_month: payment leads closed this calendar month
-    const salesThisMonth = userPaymentLeads.filter((l) => {
-      const t = l.closed_at || 0
-      return t >= monthStart
+    // Hot leads: open leads in PIPELINE_II
+    const hotLeads = openLeads.filter((l) => l.pipeline_id === AMO_PIPELINE_II).length
+
+    // Warm leads: open leads in PIPELINE_EVENTS
+    const warmLeads = openLeads.filter((l) => l.pipeline_id === AMO_PIPELINE_EVENTS).length
+
+    // Sales this month: leads where payment date field falls in current month AND price > 0
+    const salesThisMonthLeads = userLeads.filter((l) => {
+      const pd = getPaymentDate(l)
+      return pd !== null && pd >= monthStart && (l.price || 0) > 0
     })
 
-    const revenue = salesThisMonth.reduce((sum, l) => sum + (l.price || 0), 0)
+    const revenue = salesThisMonthLeads.reduce((sum, l) => sum + (l.price || 0), 0)
 
     const plan = settings.managerPlans[String(user.id)] || 0
     const planPercent = plan > 0 ? (revenue / plan) * 100 : 0
 
-    const stalledDeals = activeLeads.filter((l) => l.updated_at < stallThreshold).length
+    const stalledDeals = openLeads.filter((l) => l.updated_at < stallThreshold).length
 
     const callsCount = events.filter(
       (e) => e.created_by === user.id && e.created_at >= thirtyDaysAgo
@@ -123,24 +145,26 @@ export function transformManagers(
     const lastActivityTs = lastEvent?.created_at || 0
     const lastActivity = formatRelativeTime(lastActivityTs)
 
-    const allUserLeads = openLeads.filter((l) => l.responsible_user_id === user.id)
-    const lostRecent = allUserLeads.filter(
+    // Conversion: won vs lost in last 30 days
+    const lostRecent = userLeads.filter(
       (l) => l.status_id === AMO_LOST_STATUS && (l.closed_at || 0) >= thirtyDaysAgo
     ).length
-    const wonRecent = userPaymentLeads.filter(
-      (l) => (l.closed_at || l.updated_at || 0) >= thirtyDaysAgo
-    ).length
+    const wonRecent = userLeads.filter((l) => {
+      const pd = getPaymentDate(l)
+      return pd !== null && pd >= thirtyDaysAgo
+    }).length
     const conversion = wonRecent + lostRecent > 0
       ? (wonRecent / (wonRecent + lostRecent)) * 100
       : 0
 
-    const closedWithDuration = userPaymentLeads.filter((l) => l.closed_at)
-    const avgDealDays = closedWithDuration.length > 0
+    // Avg deal days: leads with payment date, measured from created_at to payment date
+    const paidWithDates = userLeads.filter((l) => getPaymentDate(l) !== null)
+    const avgDealDays = paidWithDates.length > 0
       ? Math.round(
-          closedWithDuration.reduce(
-            (sum, l) => sum + ((l.closed_at! - l.created_at) / 86400),
+          paidWithDates.reduce(
+            (sum, l) => sum + ((getPaymentDate(l)! - l.created_at) / 86400),
             0
-          ) / closedWithDuration.length
+          ) / paidWithDates.length
         )
       : 0
 
@@ -150,7 +174,9 @@ export function transformManagers(
       name: user.name,
       email: user.email,
       is_tracked: true,
-      deals_count: activeLeads.length,
+      deals_count: openLeads.length,
+      hot_leads: hotLeads,
+      warm_leads: warmLeads,
       revenue,
       plan,
       plan_percent: planPercent,
@@ -159,7 +185,7 @@ export function transformManagers(
       avg_deal_days: avgDealDays,
       last_activity: lastActivity,
       stalled_deals: stalledDeals,
-      sales_this_month: salesThisMonth.length,
+      sales_this_month: salesThisMonthLeads.length,
     }
   })
 }
@@ -167,53 +193,57 @@ export function transformManagers(
 // ─── Dashboard stats ──────────────────────────────────────────────────────────
 
 export function calcDashboardStats(
-  openLeads: AmoLead[],
-  paymentLeads: AmoLead[],
+  allLeads: AmoLead[],
   settings: UserSettings
 ): DashboardStats {
   const now = new Date()
-  const nowSec = Math.floor(now.getTime() / 1000)
   const monthStart = Math.floor(startOfMonth(now).getTime() / 1000)
   const prevMonthStart = Math.floor(startOfPrevMonth(now).getTime() / 1000)
+  const prevMonthEnd = Math.floor(endOfPrevMonth(now).getTime() / 1000)
 
-  const activeLeads = settings.activeStatusIds.length > 0
-    ? openLeads.filter((l) => settings.activeStatusIds.includes(l.status_id))
-    : openLeads.filter((l) => l.status_id !== AMO_WON_STATUS && l.status_id !== AMO_LOST_STATUS)
-
-  const wonThisMonth = paymentLeads.filter((l) => {
-    const t = l.closed_at || 0
-    return t >= monthStart
-  })
-
-  const wonLastMonth = paymentLeads.filter((l) => {
-    const t = l.closed_at || 0
-    return t >= prevMonthStart && t < monthStart
-  })
-
-  const lostThisMonth = openLeads.filter(
-    (l) => l.status_id === AMO_LOST_STATUS && (l.closed_at || 0) >= monthStart
+  // Total open deals across all pipelines (non-won/non-lost)
+  const openLeads = allLeads.filter(
+    (l) => l.status_id !== AMO_WON_STATUS && l.status_id !== AMO_LOST_STATUS
   )
 
-  const totalRevenue = wonThisMonth.reduce((s, l) => s + (l.price || 0), 0)
-  const revenueLastMonth = wonLastMonth.reduce((s, l) => s + (l.price || 0), 0)
+  // Revenue this month: leads where payment date is in current month AND price > 0
+  const paidThisMonth = allLeads.filter((l) => {
+    const pd = getPaymentDate(l)
+    return pd !== null && pd >= monthStart && (l.price || 0) > 0
+  })
 
-  const total = wonThisMonth.length + lostThisMonth.length
-  const conversion = total > 0 ? (wonThisMonth.length / total) * 100 : 0
+  // Revenue last month: payment date in previous month AND price > 0
+  const paidLastMonth = allLeads.filter((l) => {
+    const pd = getPaymentDate(l)
+    return pd !== null && pd >= prevMonthStart && pd < prevMonthEnd && (l.price || 0) > 0
+  })
 
-  const closedWithDuration = wonThisMonth.filter((l) => l.closed_at)
+  const totalRevenue = paidThisMonth.reduce((s, l) => s + (l.price || 0), 0)
+  const revenueLastMonth = paidLastMonth.reduce((s, l) => s + (l.price || 0), 0)
+
+  // Conversion: sales vs losses this month
+  const lostThisMonth = allLeads.filter(
+    (l) => l.status_id === AMO_LOST_STATUS && (l.closed_at || 0) >= monthStart
+  )
+  const total = paidThisMonth.length + lostThisMonth.length
+  const conversion = total > 0 ? (paidThisMonth.length / total) * 100 : 0
+
+  // Avg deal days from payment date leads
+  const paidWithDates = paidThisMonth.filter((l) => getPaymentDate(l) !== null)
   const avgDealDays =
-    closedWithDuration.length > 0
+    paidWithDates.length > 0
       ? Math.round(
-          closedWithDuration.reduce(
-            (s, l) => s + ((l.closed_at! - l.created_at) / 86400),
+          paidWithDates.reduce(
+            (s, l) => s + ((getPaymentDate(l)! - l.created_at) / 86400),
             0
-          ) / closedWithDuration.length
+          ) / paidWithDates.length
         )
       : 0
 
-  const newThisMonth = openLeads.filter((l) => l.created_at >= monthStart).length
-  const newLastMonth = openLeads.filter(
-    (l) => l.created_at >= prevMonthStart && l.created_at < monthStart
+  // Deals delta: new leads created this month vs last month
+  const newThisMonth = allLeads.filter((l) => l.created_at >= monthStart).length
+  const newLastMonth = allLeads.filter(
+    (l) => l.created_at >= prevMonthStart && l.created_at < prevMonthEnd
   ).length
   const dealsDelta = newLastMonth > 0
     ? parseFloat((((newThisMonth - newLastMonth) / newLastMonth) * 100).toFixed(1))
@@ -225,7 +255,7 @@ export function calcDashboardStats(
       : 0
 
   return {
-    total_deals: activeLeads.length,
+    total_deals: openLeads.length,
     total_revenue: totalRevenue,
     revenue_last_month: revenueLastMonth,
     conversion: parseFloat(conversion.toFixed(1)),
@@ -279,23 +309,33 @@ export function generateAlerts(managers: Manager[], leads: AmoLead[]): AiAlert[]
   return alerts
 }
 
-// ─── Weekly chart data (last 7 days, daily) ───────────────────────────────────
+// ─── Weekly chart data (last 7 days, by application date field) ───────────────
 
-export function buildWeeklyData(leads: AmoLead[], paymentLeads: AmoLead[], events: AmoEvent[]) {
+export function buildWeeklyData(allLeads: AmoLead[], events: AmoEvent[]) {
   return Array.from({ length: 7 }, (_, i) => {
     const dayStart = Math.floor(Date.now() / 1000) - (6 - i) * 86400
     const dayEnd = dayStart + 86400
     const date = new Date(dayStart * 1000)
     const label = date.toLocaleDateString("ru-RU", { day: "numeric", month: "short" })
-    const newDeals = leads.filter(l => l.created_at >= dayStart && l.created_at < dayEnd).length
-    const revenue = paymentLeads.filter(l => {
-      const t = l.closed_at || 0
-      return t >= dayStart && t < dayEnd
-    }).reduce((s, l) => s + (l.price || 0), 0)
+
+    // Hot leads: PIPELINE_II leads whose application date falls in this day
+    const hotLeads = allLeads.filter(l => {
+      if (l.pipeline_id !== AMO_PIPELINE_II) return false
+      const appDate = getApplicationDate(l)
+      return appDate !== null && appDate >= dayStart && appDate < dayEnd
+    }).length
+
+    // Warm leads: PIPELINE_EVENTS leads whose application date falls in this day
+    const warmLeads = allLeads.filter(l => {
+      if (l.pipeline_id !== AMO_PIPELINE_EVENTS) return false
+      const appDate = getApplicationDate(l)
+      return appDate !== null && appDate >= dayStart && appDate < dayEnd
+    }).length
+
     return {
       week: label,
-      deals: newDeals,
-      revenue,
+      hotLeads,
+      warmLeads,
       calls: events.filter(e => e.created_at >= dayStart && e.created_at < dayEnd).length,
     }
   })
